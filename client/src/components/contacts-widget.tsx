@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Users, Building, Mail, RefreshCw } from "lucide-react";
+import { Plus, Users, Building, Mail, RefreshCw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { AddContactDialog } from "./add-contact-dialog";
 
 interface Person {
   id: number;
@@ -128,14 +129,18 @@ export default function ContactsWidget() {
           >
             <RefreshCw className="w-4 h-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-blue-600 hover:text-blue-700"
-            title="Add Contact"
-          >
-            <Plus size={16} />
-          </Button>
+          <AddContactDialog 
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-blue-600 hover:text-blue-700"
+                title="Add Contact"
+              >
+                <Plus size={16} />
+              </Button>
+            }
+          />
         </div>
       </div>
       
@@ -235,16 +240,25 @@ export default function ContactsWidget() {
           <div className="text-center py-6 text-gray-500">
             <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-sm font-medium">No contacts yet</p>
-            <p className="text-xs mt-1 mb-4">Connect your office calendar to import contacts automatically</p>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={syncOfficeData}
-              className="mx-auto"
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Sync Contacts
-            </Button>
+            <p className="text-xs mt-1 mb-4">Add contacts manually or sync from your office calendar</p>
+            <div className="flex justify-center space-x-2">
+              <AddContactDialog 
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Add Contact
+                  </Button>
+                }
+              />
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={syncOfficeData}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Sync Contacts
+              </Button>
+            </div>
           </div>
         )}
 

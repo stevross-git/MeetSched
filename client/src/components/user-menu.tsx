@@ -24,7 +24,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Building
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -208,6 +209,8 @@ export function UserMenu({ user, token, onLogout }: UserMenuProps) {
       });
     },
   });
+
+  const disconnectOfficeMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch("/api/office/disconnect", {
         method: "DELETE",

@@ -53,6 +53,31 @@ export interface GoogleCalendarEvent {
   hangoutLink?: string;
 }
 
+export interface MicrosoftContact {
+  id: string;
+  displayName: string;
+  emailAddresses: Array<{
+    address: string;
+    name?: string;
+  }>;
+  jobTitle?: string;
+  companyName?: string;
+}
+
+export interface GoogleContact {
+  resourceName: string;
+  names: Array<{
+    displayName: string;
+  }>;
+  emailAddresses: Array<{
+    value: string;
+  }>;
+  organizations?: Array<{
+    title?: string;
+    name?: string;
+  }>;
+}
+
 export class OfficeConnectionService {
   // Microsoft Graph API endpoints
   private static readonly GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
@@ -60,6 +85,7 @@ export class OfficeConnectionService {
   // Google Calendar API endpoints
   private static readonly GOOGLE_CALENDAR_BASE_URL = 'https://www.googleapis.com/calendar/v3';
   private static readonly GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+  private static readonly GOOGLE_PEOPLE_BASE_URL = 'https://people.googleapis.com/v1';
 
   // Dynamic auth URL based on tenant configuration
   private static getGraphAuthUrl(): string {
@@ -216,12 +242,122 @@ export class OfficeConnectionService {
     });
   }
 
+  // Sync user data from office - THIS WAS THE MISSING METHOD
+  static async syncUserData(user: User): Promise<{ calendars: number; contacts: number; message: string }> {
+    if (!this.hasValidConnection(user)) {
+      throw new Error('No valid office connection found');
+    }
+
+    let syncedCalendars = 0;
+    let syncedContacts = 0;
+
+    try {
+      if (user.officeConnectionType === 'microsoft') {
+        // Sync Microsoft contacts
+        const contacts = await this.getMicrosoftContacts(user.officeAccessToken!);
+        
+        for (const contact of contacts) {
+          // Check if contact already exists
+          const existingContact = await storage.getContactByName(contact.displayName, user.id);
+          
+          if (!existingContact) {
+            await storage.createContact({
+              userId: user.id,
+              name: contact.displayName,
+              email: contact.emailAddresses?.[0]?.address || null,
+              role: contact.jobTitle || null,
+              status: 'offline',
+              isPrivate: false,
+              officeContactId: contact.id,
+            });
+            syncedContacts++;
+          }
+        }
+
+        // Sync Microsoft calendar events (optional - for viewing existing events)
+        const startTime = new Date();
+        startTime.setMonth(startTime.getMonth() - 1); // Last month
+        const endTime = new Date();
+        endTime.setMonth(endTime.getMonth() + 2); // Next 2 months
+        
+        const events = await this.getMicrosoftEvents(
+          user.officeAccessToken!,
+          user.officeCalendarId!,
+          startTime.toISOString(),
+          endTime.toISOString()
+        );
+        syncedCalendars = events.length;
+
+      } else if (user.officeConnectionType === 'google') {
+        // Sync Google contacts
+        const contacts = await this.getGoogleContacts(user.officeAccessToken!);
+        
+        for (const contact of contacts) {
+          if (contact.names?.[0]?.displayName) {
+            // Check if contact already exists
+            const existingContact = await storage.getContactByName(contact.names[0].displayName, user.id);
+            
+            if (!existingContact) {
+              await storage.createContact({
+                userId: user.id,
+                name: contact.names[0].displayName,
+                email: contact.emailAddresses?.[0]?.value || null,
+                role: contact.organizations?.[0]?.title || null,
+                status: 'offline',
+                isPrivate: false,
+                officeContactId: contact.resourceName,
+              });
+              syncedContacts++;
+            }
+          }
+        }
+
+        // Sync Google calendar events (optional - for viewing existing events)
+        const startTime = new Date();
+        startTime.setMonth(startTime.getMonth() - 1);
+        const endTime = new Date();
+        endTime.setMonth(endTime.getMonth() + 2);
+        
+        const events = await this.getGoogleEvents(
+          user.officeAccessToken!,
+          user.officeCalendarId!,
+          startTime.toISOString(),
+          endTime.toISOString()
+        );
+        syncedCalendars = events.length;
+      }
+
+      return {
+        calendars: syncedCalendars,
+        contacts: syncedContacts,
+        message: `Synced ${syncedContacts} contacts and found ${syncedCalendars} calendar events`
+      };
+
+    } catch (error) {
+      console.error('Sync error:', error);
+      
+      // If token is expired, try to refresh
+      if (error instanceof Error && error.message.includes('401')) {
+        try {
+          await this.refreshTokenIfNeeded(user);
+          // Retry sync after token refresh
+          return await this.syncUserData(user);
+        } catch (refreshError) {
+          throw new Error(`Sync failed - token refresh failed: ${refreshError instanceof Error ? refreshError.message : 'Unknown error'}`);
+        }
+      }
+      
+      throw new Error(`Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   // Generate OAuth URL for Microsoft with proper tenant handling
   static generateMicrosoftAuthUrl(clientId: string, redirectUri: string, state: string): string {
     const scopes = [
       'https://graph.microsoft.com/Calendars.ReadWrite',
       'https://graph.microsoft.com/User.Read',
-      'https://graph.microsoft.com/People.Read'
+      'https://graph.microsoft.com/People.Read',
+      'https://graph.microsoft.com/Contacts.Read'
     ].join(' ');
 
     const authUrl = this.getGraphAuthUrl();
@@ -245,7 +381,8 @@ export class OfficeConnectionService {
     const scopes = [
       'https://www.googleapis.com/auth/calendar',
       'https://www.googleapis.com/auth/userinfo.email',
-      'https://www.googleapis.com/auth/userinfo.profile'
+      'https://www.googleapis.com/auth/userinfo.profile',
+      'https://www.googleapis.com/auth/contacts.readonly'
     ].join(' ');
 
     const params = new URLSearchParams({
@@ -392,6 +529,25 @@ export class OfficeConnectionService {
     return data.value || [];
   }
 
+  // Get Microsoft contacts
+  static async getMicrosoftContacts(accessToken: string): Promise<MicrosoftContact[]> {
+    const response = await fetch(`${this.GRAPH_BASE_URL}/me/contacts`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Microsoft contacts fetch error:', error);
+      throw new Error(`Failed to fetch Microsoft contacts: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.value || [];
+  }
+
   // Get Google user info
   static async getGoogleUserInfo(accessToken: string): Promise<{ email: string; name: string }> {
     const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -410,6 +566,25 @@ export class OfficeConnectionService {
       email: data.email,
       name: data.name,
     };
+  }
+
+  // Get Google contacts
+  static async getGoogleContacts(accessToken: string): Promise<GoogleContact[]> {
+    const response = await fetch(`${this.GOOGLE_PEOPLE_BASE_URL}/people/me/connections?personFields=names,emailAddresses,organizations`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Google contacts fetch error:', error);
+      throw new Error(`Failed to fetch Google contacts: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.connections || [];
   }
 
   // Create calendar event in Microsoft Graph
@@ -615,6 +790,58 @@ export class OfficeConnectionService {
       refreshToken: data.refresh_token || refreshToken,
       expiresIn: data.expires_in,
     };
+  }
+
+  // Refresh token if needed
+  static async refreshTokenIfNeeded(user: User): Promise<void> {
+    if (!user.officeRefreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const clientId = user.officeConnectionType === 'microsoft' 
+      ? process.env.MICROSOFT_CLIENT_ID 
+      : process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = user.officeConnectionType === 'microsoft' 
+      ? process.env.MICROSOFT_CLIENT_SECRET 
+      : process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!clientId) {
+      throw new Error('OAuth credentials not configured');
+    }
+
+    try {
+      let tokenResponse;
+      
+      if (user.officeConnectionType === 'microsoft') {
+        tokenResponse = await this.refreshMicrosoftToken(
+          user.officeRefreshToken,
+          clientId,
+          clientSecret || ''
+        );
+      } else if (user.officeConnectionType === 'google') {
+        tokenResponse = await this.refreshGoogleToken(
+          user.officeRefreshToken,
+          clientId,
+          clientSecret || ''
+        );
+      } else {
+        throw new Error('Unsupported connection type');
+      }
+
+      // Update user with new tokens
+      await storage.updateUser(user.id, {
+        officeAccessToken: tokenResponse.accessToken,
+        officeRefreshToken: tokenResponse.refreshToken,
+      });
+
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      // Mark connection as error
+      await storage.updateUser(user.id, {
+        officeConnectionStatus: 'error',
+      });
+      throw error;
+    }
   }
 
   // Check if user has valid office connection

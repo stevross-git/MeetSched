@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Calendar as CalendarIcon, Sync, RefreshCw } from "lucide-react";
+import { ExternalLink, Calendar as CalendarIcon, RefreshCw, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -153,8 +153,7 @@ export default function CalendarWidget() {
             title={`+${hiddenCount} more events`}
           />
         )}
-    );
-}
+      </div>
     );
   };
 
@@ -260,8 +259,10 @@ export default function CalendarWidget() {
           <div className="flex items-center space-x-2 text-blue-600">
             <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
             <span>Synced with Office Calendar</span>
-            <Sync className="w-3 h-3" />
+            <ArrowUpDown className="w-3 h-3" />
           </div>
         )}
       </div>
     </div>
+  );
+}
