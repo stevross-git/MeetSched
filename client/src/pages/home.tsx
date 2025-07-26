@@ -11,7 +11,7 @@ export default function Home() {
     queryKey: ["/api/bookings/today"],
   });
 
-  const bookingsCount = todayBookings?.length || 0;
+  const bookingsCount = Array.isArray(todayBookings) ? todayBookings.length : 0;
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
