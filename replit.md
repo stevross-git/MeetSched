@@ -8,6 +8,15 @@ AI Book Me is a natural language-powered scheduling application that allows user
 
 Preferred communication style: Simple, everyday language.
 
+## Recent Changes
+
+**2025-07-26**: Successfully migrated project from Replit Agent to Replit environment
+- Fixed TypeScript errors and React key warnings in calendar widget
+- Added OpenAI API key integration for AI booking functionality
+- Updated Zod schema to handle nullable fields from OpenAI responses  
+- Improved time slot parsing to better match user-specified times and days
+- All core features now functional: chat interface, calendar display, contact management
+
 ## System Architecture
 
 ### Frontend Architecture

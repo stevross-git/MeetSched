@@ -70,25 +70,94 @@ export async function generateTimeSlotSuggestions(
   existingBookings: any[],
   contactAvailability?: any
 ): Promise<{ timeSlots: Array<{ start: Date; end: Date; label: string }> }> {
-  const prompt = `
-Based on the booking intent and existing calendar data, suggest 2-3 optimal time slots.
+  
+  // If user specified a preferred time, try to honor it exactly
+  if (intent.preferred_time) {
+    const now = new Date();
+    const suggestedTime = new Date();
+    
+    // Parse the preferred time - handle common formats
+    let hours = 14; // Default to 2pm if parsing fails
+    let minutes = 0;
+    
+    // Look for "2pm", "2:00pm", "14:00", etc.
+    if (intent.preferred_time.includes('2pm') || intent.preferred_time.includes('2:00 PM')) {
+      hours = 14;
+    } else if (intent.preferred_time.includes('2am') || intent.preferred_time.includes('2:00 AM')) {
+      hours = 2;
+    } else {
+      // General parsing
+      const timeMatch = intent.preferred_time.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)?/i);
+      if (timeMatch) {
+        hours = parseInt(timeMatch[1]);
+        minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+        const ampm = timeMatch[3]?.toLowerCase();
+        
+        if (ampm === 'pm' && hours !== 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
+        
+        // If no am/pm specified and hour is reasonable for PM, assume PM
+        if (!ampm && hours >= 1 && hours <= 11) hours += 12;
+      }
+    }
+    
+    suggestedTime.setHours(hours, minutes, 0, 0);
+    
+    // Handle day preferences
+    if (intent.preferred_day?.toLowerCase().includes('tomorrow')) {
+      suggestedTime.setDate(now.getDate() + 1);
+    } else if (intent.preferred_day?.toLowerCase().includes('tuesday')) {
+      // Find next Tuesday
+      const currentDay = now.getDay(); // 0 = Sunday, 2 = Tuesday
+      let daysUntilTuesday = (2 - currentDay + 7) % 7;
+      if (daysUntilTuesday === 0) daysUntilTuesday = 7; // Next Tuesday if today is Tuesday
+      suggestedTime.setDate(now.getDate() + daysUntilTuesday);
+    }
+    
+    const endTime = new Date(suggestedTime);
+    endTime.setMinutes(endTime.getMinutes() + intent.duration_minutes);
+    
+    return {
+      timeSlots: [
+        {
+          start: suggestedTime,
+          end: endTime,
+          label: suggestedTime.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            month: 'short', 
+            day: 'numeric'
+          }) + ' at ' + suggestedTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })
+        }
+      ]
+    };
+  }
 
+  const prompt = `
+Based on the booking intent and existing calendar data, suggest 2-3 optimal time slots that CLOSELY MATCH the user's preferred time and day.
+
+Current date/time: ${new Date().toISOString()}
 Booking Intent: ${JSON.stringify(intent)}
 Existing Bookings: ${JSON.stringify(existingBookings)}
 
-Consider:
-- The preferred day/time mentioned
-- Avoiding conflicts with existing bookings
-- Standard business hours (9 AM - 6 PM)
+IMPORTANT RULES:
+- If user specifies a time like "2pm", suggest times AROUND that time (1:30pm, 2:00pm, 2:30pm)
+- If user says "Tuesday", suggest times on Tuesday
+- Use the current year (2025) and month
+- Times should be in 24-hour format for the ISO string
+- Standard business hours are 9 AM - 6 PM
 - Buffer time between meetings (15 minutes)
 
 Return JSON with suggested time slots:
 {
   "timeSlots": [
     {
-      "start": "2024-01-15T10:30:00.000Z",
-      "end": "2024-01-15T11:30:00.000Z", 
-      "label": "Monday, Jan 15 at 10:30 AM"
+      "start": "2025-07-29T14:00:00.000Z",
+      "end": "2025-07-29T15:00:00.000Z", 
+      "label": "Tuesday, Jul 29 at 2:00 PM"
     }
   ]
 }
@@ -129,24 +198,48 @@ Return JSON with suggested time slots:
   } catch (error) {
     console.error("Error generating time slots:", error);
     
-    // Fallback: generate basic time slots
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(10, 30, 0, 0);
+    // Fallback: generate basic time slots that match user intent
+    const fallbackDate = new Date();
     
-    const endTime = new Date(tomorrow);
-    endTime.setHours(11, 30, 0, 0);
+    // If user mentioned a specific day, try to honor it
+    if (intent.preferred_day?.toLowerCase().includes('tuesday')) {
+      const daysUntilTuesday = (2 - fallbackDate.getDay() + 7) % 7;
+      fallbackDate.setDate(fallbackDate.getDate() + (daysUntilTuesday || 7));
+    } else {
+      fallbackDate.setDate(fallbackDate.getDate() + 1); // Tomorrow
+    }
+    
+    // If user mentioned a time, try to honor it
+    let fallbackHour = 10;
+    if (intent.preferred_time?.includes('2pm') || intent.preferred_time?.includes('14:')) {
+      fallbackHour = 14;
+    } else if (intent.preferred_time?.includes('pm')) {
+      const hourMatch = intent.preferred_time.match(/(\d{1,2})/);
+      if (hourMatch) {
+        fallbackHour = parseInt(hourMatch[1]) + 12;
+        if (fallbackHour === 24) fallbackHour = 12;
+      }
+    }
+    
+    fallbackDate.setHours(fallbackHour, 0, 0, 0);
+    
+    const endTime = new Date(fallbackDate);
+    endTime.setMinutes(endTime.getMinutes() + intent.duration_minutes);
     
     return {
       timeSlots: [
         {
-          start: tomorrow,
+          start: fallbackDate,
           end: endTime,
-          label: tomorrow.toLocaleDateString('en-US', { 
+          label: fallbackDate.toLocaleDateString('en-US', { 
             weekday: 'long', 
             month: 'short', 
             day: 'numeric'
-          }) + ' at 10:30 AM'
+          }) + ' at ' + fallbackDate.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })
         }
       ]
     };
