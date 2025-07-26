@@ -163,75 +163,36 @@ export default function TodaySchedule() {
   };
 
   const getEventColor = (booking: EnhancedBooking, index: number) => {
-    if (booking.status === "confirmed") return "bg-emerald-500";
-    if (booking.status === "cancelled") return "bg-red-500";
-    if (booking.officeEventId) return "bg-blue-500"; // Office synced events
+    if (booking.status === "cancelled") return "bg-red-300";
+    if (booking._isLive) return "bg-red-500";
+    if (booking.status === "confirmed") return "bg-green-500";
     
-    // Color by type
-    switch (booking.type) {
-      case 'meeting':
-        return "bg-blue-500";
-      case 'call':
-        return "bg-purple-500";
-      case 'appointment':
-        return "bg-orange-500";
-      case 'lunch':
-      case 'dinner':
-      case 'coffee':
-        return "bg-amber-500";
-      case 'interview':
-        return "bg-indigo-500";
-      case 'personal':
-        return "bg-pink-500";
-      default:
-        const colors = ["bg-purple-600", "bg-green-500", "bg-orange-500"];
-        return colors[index % colors.length];
-    }
-  };
-
-  const isRecentlyScheduled = (booking: EnhancedBooking) => {
-    return booking._syncStatus === 'success' || booking.status === 'scheduled';
+    // Color rotation for visual variety
+    const colors = [
+      "bg-blue-500", "bg-purple-500", "bg-indigo-500", 
+      "bg-cyan-500", "bg-teal-500", "bg-emerald-500",
+      "bg-orange-500", "bg-amber-500"
+    ];
+    return colors[index % colors.length];
   };
 
   const getEventBadges = (booking: EnhancedBooking) => {
     const badges = [];
     
-    // Office connection badge
-    if (booking.officeEventId) {
-      badges.push(
-        <Badge key="office" variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-          <Building className="w-3 h-3 mr-1" />
-          {booking._syncType === 'microsoft' ? 'Outlook' : booking._syncType === 'google' ? 'Google' : 'Office'}
-        </Badge>
-      );
-    }
-    
-    // Privacy badge
     if (booking.isPrivate) {
       badges.push(
-        <Badge key="private" variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-          <EyeOff className="w-3 h-3 mr-1" />
+        <Badge key="private" variant="secondary" className="text-xs">
+          <Eye className="w-3 h-3 mr-1" />
           Private
         </Badge>
       );
     }
     
-    // Online meeting badge
-    if (booking.officeEventUrl) {
+    if (booking.officeEventId) {
       badges.push(
-        <Badge key="online" variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-          <Video className="w-3 h-3 mr-1" />
-          Online
-        </Badge>
-      );
-    }
-    
-    // Status badges
-    if (booking.status === 'confirmed') {
-      badges.push(
-        <Badge key="confirmed" variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
-          <CheckCircle className="w-3 h-3 mr-1" />
-          Confirmed
+        <Badge key="synced" variant="outline" className="text-xs text-blue-600 border-blue-300">
+          <Building className="w-3 h-3 mr-1" />
+          Synced
         </Badge>
       );
     }
@@ -239,39 +200,51 @@ export default function TodaySchedule() {
     return badges;
   };
 
-  const sortedBookings = [...todayBookings].sort((a, b) => 
-    new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-  );
-
-  // Add live status to bookings
-  const enrichedBookings = sortedBookings.map(booking => {
+  const isRecentlyScheduled = (booking: EnhancedBooking) => {
+    if (!booking.id) return false;
     const now = new Date();
-    const eventStart = new Date(booking.startTime);
-    const eventEnd = new Date(booking.endTime);
-    const isLive = now >= eventStart && now <= eventEnd;
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    // Since we don't have createdAt, we'll use a simple heuristic
+    return booking.id > 0; // Placeholder logic
+  };
+
+  // Enrich bookings with real-time data
+  const enrichedBookings = todayBookings.map((booking, index) => {
+    const now = new Date();
+    const startTime = new Date(booking.startTime);
+    const endTime = new Date(booking.endTime);
+    
+    const isLive = now >= startTime && now <= endTime;
     const timeUntil = getTimeUntilEvent(booking.startTime);
     
     return {
       ...booking,
       _isLive: isLive,
-      _timeUntil: timeUntil
+      _timeUntil: timeUntil,
+      _syncStatus: booking.officeEventId ? "synced" : "local",
+      _syncType: booking.officeEventId ? "office" : "manual"
     };
   });
 
+  // Sort bookings by start time
+  enrichedBookings.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
   if (isLoading) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+          <div className="animate-pulse bg-gray-200 h-4 w-20 rounded"></div>
         </div>
         <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg animate-pulse">
-              <div className="w-1 h-12 bg-gray-300 rounded-full"></div>
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-300 rounded w-3/4"></div>
-                <div className="h-3 bg-gray-300 rounded w-1/2"></div>
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="animate-pulse">
+              <div className="flex space-x-3">
+                <div className="w-1 h-16 bg-gray-200 rounded-full"></div>
+                <div className="flex-1 space-y-2 py-1">
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                </div>
               </div>
             </div>
           ))}
@@ -281,27 +254,22 @@ export default function TodaySchedule() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
         <div className="flex items-center space-x-2">
-          <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
-          <Badge variant="outline" className="text-xs">
-            {new Date().toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              month: 'short', 
-              day: 'numeric' 
-            })}
-          </Badge>
+          <DebugBookings />
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => refetch()}
+            className="text-gray-600 hover:text-gray-900"
+          >
+            <Clock className="w-4 h-4" />
+          </Button>
         </div>
-        {stats && (
-          <div className="flex items-center space-x-2 text-xs text-gray-500">
-            <Calendar className="w-3 h-3" />
-            <span>{stats.syncedBookings}/{stats.totalBookings} synced</span>
-            <DebugBookings />
-          </div>
-        )}
       </div>
-      
+
       <div className="space-y-3">
         {enrichedBookings.length === 0 ? (
           <div className="text-center py-8 text-gray-500">

@@ -1,502 +1,280 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { 
-  ArrowRight, 
-  Users, 
-  Video, 
-  CheckCircle, 
-  ExternalLink, 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  Building,
-  Phone,
-  Coffee,
-  Briefcase,
-  Heart,
-  MoreHorizontal,
-  Edit3,
-  Trash2,
-  Eye,
-  EyeOff
-} from "lucide-react";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calendar, Clock, Users, MapPin, FileText } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { CreateTestBookingDialog } from "./create-test-booking-dialog";
-import { DebugBookings } from "./debug-bookings";
-import type { Booking, Contact } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
-interface EnhancedBooking extends Booking {
-  _syncStatus?: string;
-  _syncType?: string;
-  _isLive?: boolean;
-  _timeUntil?: string;
+interface CreateTestBookingDialogProps {
+  trigger?: React.ReactNode;
 }
 
-export default function TodaySchedule() {
+export function CreateTestBookingDialog({ trigger }: CreateTestBookingDialogProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [type, setType] = useState("meeting");
+  
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: todayBookings = [], isLoading, refetch } = useQuery<EnhancedBooking[]>({
-    queryKey: ["/api/bookings/today"],
-    refetchInterval: 30000, // Refresh every 30 seconds for live updates
-  });
-
-  const { data: contacts = [] } = useQuery<Contact[]>({
-    queryKey: ["/api/contacts"],
-  });
-
-  const { data: stats } = useQuery({
-    queryKey: ["/api/stats"],
-  });
-
-  // Mutation to update booking status
-  const updateBookingMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      const response = await apiRequest("PATCH", `/api/bookings/${id}/status`, { status });
+  const createBookingMutation = useMutation({
+    mutationFn: async (bookingData: {
+      title: string;
+      description?: string;
+      startTime: string;
+      endTime: string;
+      location?: string;
+      type: string;
+    }) => {
+      const response = await apiRequest("POST", "/api/bookings", bookingData);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bookings/today"] });
+    onSuccess: (newBooking) => {
+      // Refresh bookings data
       queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings/today"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      
+      // Close dialog and reset form
+      setIsOpen(false);
+      resetForm();
+      
       toast({
-        title: "Booking updated",
-        description: "The booking status has been updated successfully.",
+        title: "Test booking created",
+        description: `"${newBooking.title}" has been added to your calendar.`,
       });
     },
     onError: (error: any) => {
       toast({
-        title: "Update failed",
-        description: error.message || "Failed to update booking status.",
+        title: "Failed to create booking",
+        description: error.message || "Please try again.",
         variant: "destructive",
       });
     },
   });
 
-  const getContactName = (contactId: number | null) => {
-    if (!contactId) return "";
-    const contact = contacts.find(c => c.id === contactId);
-    return contact ? contact.name : "";
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setStartTime("");
+    setEndTime("");
+    setLocation("");
+    setType("meeting");
   };
 
-  const getContactDetails = (contactId: number | null) => {
-    if (!contactId) return null;
-    return contacts.find(c => c.id === contactId);
+  const generateDefaultTimes = () => {
+    const now = new Date();
+    const startDate = new Date(now.getTime() + 30 * 60000); // 30 minutes from now
+    const endDate = new Date(startDate.getTime() + 60 * 60000); // 1 hour duration
+    
+    const formatDateTime = (date: Date) => {
+      return date.toISOString().slice(0, 16);
+    };
+    
+    setStartTime(formatDateTime(startDate));
+    setEndTime(formatDateTime(endDate));
   };
 
-  const formatTime = (startTime: string, endTime: string) => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!title.trim()) {
+      toast({
+        title: "Title required",
+        description: "Please enter a booking title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!startTime || !endTime) {
+      toast({
+        title: "Time required",
+        description: "Please select start and end times.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const start = new Date(startTime);
     const end = new Date(endTime);
-    
-    return `${start.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    })} - ${end.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    })}`;
+
+    if (end <= start) {
+      toast({
+        title: "Invalid time range",
+        description: "End time must be after start time.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createBookingMutation.mutate({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      startTime,
+      endTime,
+      location: location.trim() || undefined,
+      type,
+    });
   };
 
-  const getTimeUntilEvent = (startTime: string) => {
-    const now = new Date();
-    const eventStart = new Date(startTime);
-    const diffMs = eventStart.getTime() - now.getTime();
-    
-    if (diffMs < 0) return "Started";
-    
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMins / 60);
-    
-    if (diffHours > 0) {
-      return `in ${diffHours}h ${diffMins % 60}m`;
-    } else if (diffMins > 0) {
-      return `in ${diffMins}m`;
-    } else {
-      return "Starting now";
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (open && !startTime && !endTime) {
+      generateDefaultTimes();
     }
   };
-
-  const getEventIcon = (booking: EnhancedBooking) => {
-    // Check if it's a video meeting
-    if (booking.officeEventUrl || 
-        booking.location?.toLowerCase().includes("teams") || 
-        booking.location?.toLowerCase().includes("zoom") ||
-        booking.location?.toLowerCase().includes("meet")) {
-      return <Video className="text-blue-500" size={16} />;
-    }
-    
-    // Check location type
-    if (booking.location?.toLowerCase().includes("room") || 
-        booking.location?.toLowerCase().includes("office")) {
-      return <MapPin className="text-green-500" size={16} />;
-    }
-    
-    // Check by event type
-    switch (booking.type) {
-      case 'call':
-        return <Phone className="text-purple-500" size={16} />;
-      case 'meeting':
-        return <Users className="text-blue-500" size={16} />;
-      case 'appointment':
-        return <Calendar className="text-orange-500" size={16} />;
-      case 'lunch':
-      case 'dinner':
-      case 'coffee':
-        return <Coffee className="text-amber-500" size={16} />;
-      case 'interview':
-        return <Briefcase className="text-indigo-500" size={16} />;
-      case 'personal':
-        return <Heart className="text-pink-500" size={16} />;
-      default:
-        return <Users className="text-gray-400" size={16} />;
-    }
-  };
-
-  const getEventColor = (booking: EnhancedBooking, index: number) => {
-    if (booking.status === "confirmed") return "bg-emerald-500";
-    if (booking.status === "cancelled") return "bg-red-500";
-    if (booking.officeEventId) return "bg-blue-500"; // Office synced events
-    
-    // Color by type
-    switch (booking.type) {
-      case 'meeting':
-        return "bg-blue-500";
-      case 'call':
-        return "bg-purple-500";
-      case 'appointment':
-        return "bg-orange-500";
-      case 'lunch':
-      case 'dinner':
-      case 'coffee':
-        return "bg-amber-500";
-      case 'interview':
-        return "bg-indigo-500";
-      case 'personal':
-        return "bg-pink-500";
-      default:
-        const colors = ["bg-purple-600", "bg-green-500", "bg-orange-500"];
-        return colors[index % colors.length];
-    }
-  };
-
-  const isRecentlyScheduled = (booking: EnhancedBooking) => {
-    return booking._syncStatus === 'success' || booking.status === 'scheduled';
-  };
-
-  const getEventBadges = (booking: EnhancedBooking) => {
-    const badges = [];
-    
-    // Office connection badge
-    if (booking.officeEventId) {
-      badges.push(
-        <Badge key="office" variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-          <Building className="w-3 h-3 mr-1" />
-          {booking._syncType === 'microsoft' ? 'Outlook' : booking._syncType === 'google' ? 'Google' : 'Office'}
-        </Badge>
-      );
-    }
-    
-    // Privacy badge
-    if (booking.isPrivate) {
-      badges.push(
-        <Badge key="private" variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-          <EyeOff className="w-3 h-3 mr-1" />
-          Private
-        </Badge>
-      );
-    }
-    
-    // Online meeting badge
-    if (booking.officeEventUrl) {
-      badges.push(
-        <Badge key="online" variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-          <Video className="w-3 h-3 mr-1" />
-          Online
-        </Badge>
-      );
-    }
-    
-    // Status badges
-    if (booking.status === 'confirmed') {
-      badges.push(
-        <Badge key="confirmed" variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
-          <CheckCircle className="w-3 h-3 mr-1" />
-          Confirmed
-        </Badge>
-      );
-    }
-    
-    return badges;
-  };
-
-  const sortedBookings = [...todayBookings].sort((a, b) => 
-    new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-  );
-
-  // Add live status to bookings
-  const enrichedBookings = sortedBookings.map(booking => {
-    const now = new Date();
-    const eventStart = new Date(booking.startTime);
-    const eventEnd = new Date(booking.endTime);
-    const isLive = now >= eventStart && now <= eventEnd;
-    const timeUntil = getTimeUntilEvent(booking.startTime);
-    
-    return {
-      ...booking,
-      _isLive: isLive,
-      _timeUntil: timeUntil
-    };
-  });
-
-  if (isLoading) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg animate-pulse">
-              <div className="w-1 h-12 bg-gray-300 rounded-full"></div>
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-300 rounded w-3/4"></div>
-                <div className="h-3 bg-gray-300 rounded w-1/2"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2">
-          <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
-          <Badge variant="outline" className="text-xs">
-            {new Date().toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              month: 'short', 
-              day: 'numeric' 
-            })}
-          </Badge>
-        </div>
-        {stats && (
-          <div className="flex items-center space-x-2 text-xs text-gray-500">
-            <Calendar className="w-3 h-3" />
-            <span>{stats.syncedBookings}/{stats.totalBookings} synced</span>
-            <DebugBookings />
-          </div>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        {trigger || (
+          <Button variant="outline" size="sm">
+            <Clock className="w-4 h-4 mr-2" />
+            Create Test Booking
+          </Button>
         )}
-      </div>
-      
-      <div className="space-y-3">
-        {enrichedBookings.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm font-medium">No events scheduled for today</p>
-            <p className="text-xs mt-1 mb-4">Perfect day for a fresh start!</p>
-            <div className="flex justify-center space-x-2">
-              <CreateTestBookingDialog 
-                trigger={
-                  <Button variant="outline" size="sm">
-                    <Clock className="w-4 h-4 mr-2" />
-                    Create Test Booking
-                  </Button>
-                }
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Create Test Booking
+          </DialogTitle>
+          <DialogDescription>
+            Create a test booking to see how events appear in your calendar.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Title */}
+          <div className="space-y-2">
+            <Label htmlFor="title">Title *</Label>
+            <Input
+              id="title"
+              placeholder="e.g., Team Standup, Client Call"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-2">
+            <Label htmlFor="description">
+              <FileText className="w-4 h-4 inline mr-1" />
+              Description
+            </Label>
+            <Textarea
+              id="description"
+              placeholder="Optional meeting details..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+            />
+          </div>
+
+          {/* Time Range */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="startTime">Start Time *</Label>
+              <Input
+                id="startTime"
+                type="datetime-local"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="endTime">End Time *</Label>
+              <Input
+                id="endTime"
+                type="datetime-local"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                required
               />
             </div>
           </div>
-        ) : (
-          <>
-            {enrichedBookings.map((booking, index) => {
-              const isRecent = isRecentlyScheduled(booking);
-              const contactName = getContactName(booking.contactId);
-              const contactDetails = getContactDetails(booking.contactId);
-              const badges = getEventBadges(booking);
-              const isUpcoming = new Date(booking.startTime) > new Date();
-              
-              return (
-                <div
-                  key={booking.id}
-                  className={`relative flex items-start space-x-3 p-4 rounded-lg transition-all hover:shadow-sm ${
-                    isRecent 
-                      ? "bg-emerald-50 border border-emerald-200" 
-                      : booking._isLive
-                      ? "bg-blue-50 border border-blue-200"
-                      : booking.status === 'cancelled'
-                      ? "bg-red-50 border border-red-200 opacity-75"
-                      : "bg-gray-50 hover:bg-gray-100"
-                  }`}
-                >
-                  {/* Time indicator bar */}
-                  <div className={`w-1 h-16 ${getEventColor(booking, index)} rounded-full flex-shrink-0`}></div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        {/* Title and Live/New badges */}
-                        <div className="flex items-center space-x-2 mb-1">
-                          <h4 className="font-medium text-gray-900 truncate">{booking.title}</h4>
-                          {booking._isLive && (
-                            <Badge className="bg-red-500 text-white text-xs animate-pulse">
-                              Live
-                            </Badge>
-                          )}
-                          {isRecent && !booking._isLive && (
-                            <Badge className="bg-emerald-500 text-white text-xs">
-                              New
-                            </Badge>
-                          )}
-                          {booking.status === 'cancelled' && (
-                            <Badge className="bg-red-500 text-white text-xs">
-                              Cancelled
-                            </Badge>
-                          )}
-                        </div>
-                        
-                        {/* Time and participant info */}
-                        <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
-                          <div className="flex items-center space-x-1">
-                            <Clock className="w-3 h-3" />
-                            <span>{formatTime(booking.startTime, booking.endTime)}</span>
-                            {isUpcoming && (
-                              <span className="text-blue-600 font-medium">
-                                ({booking._timeUntil})
-                              </span>
-                            )}
-                          </div>
-                          {contactName && (
-                            <div className="flex items-center space-x-1">
-                              <Users className="w-3 h-3" />
-                              <span>with {contactName}</span>
-                              {contactDetails?.status === 'online' && (
-                                <div className="w-2 h-2 bg-green-500 rounded-full" title="Online"></div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Location */}
-                        {booking.location && (
-                          <div className="flex items-center space-x-1 text-sm text-gray-500 mb-2">
-                            <MapPin className="w-3 h-3" />
-                            <span>{booking.location}</span>
-                          </div>
-                        )}
-                        
-                        {/* Badges */}
-                        {badges.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {badges}
-                          </div>
-                        )}
-                        
-                        {/* Description */}
-                        {booking.description && (
-                          <p className="text-xs text-gray-500 line-clamp-2">{booking.description}</p>
-                        )}
-                      </div>
-                      
-                      {/* Action buttons */}
-                      <div className="flex items-center space-x-2 ml-3">
-                        {/* Join meeting button */}
-                        {booking.officeEventUrl && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => window.open(booking.officeEventUrl!, '_blank')}
-                            className="text-blue-600 hover:text-blue-700"
-                            title="Join Online Meeting"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Button>
-                        )}
-                        
-                        {/* Event type icon */}
-                        <div className="p-1">
-                          {getEventIcon(booking)}
-                        </div>
-                        
-                        {/* More actions menu */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <MoreHorizontal className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => {/* TODO: Edit booking */}}>
-                              <Edit3 className="w-4 h-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            {booking.status !== 'confirmed' && (
-                              <DropdownMenuItem 
-                                onClick={() => updateBookingMutation.mutate({ id: booking.id, status: 'confirmed' })}
-                                disabled={updateBookingMutation.isPending}
-                              >
-                                <CheckCircle className="w-4 h-4 mr-2" />
-                                Confirm
-                              </DropdownMenuItem>
-                            )}
-                            {booking.status !== 'cancelled' && (
-                              <DropdownMenuItem 
-                                onClick={() => updateBookingMutation.mutate({ id: booking.id, status: 'cancelled' })}
-                                disabled={updateBookingMutation.isPending}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Cancel
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            
-            {/* Summary footer */}
-            <div className="pt-3 border-t border-gray-100">
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center space-x-4 text-gray-600">
-                  <span>{enrichedBookings.length} event{enrichedBookings.length !== 1 ? 's' : ''} today</span>
-                  {stats && stats.syncedBookings > 0 && (
-                    <div className="flex items-center space-x-1">
-                      <Building className="w-3 h-3 text-blue-500" />
-                      <span className="text-blue-600">{stats.syncedBookings} synced</span>
-                    </div>
-                  )}
-                  {enrichedBookings.some(b => b._isLive) && (
-                    <div className="flex items-center space-x-1">
-                      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                      <span className="text-red-600">Live event</span>
-                    </div>
-                  )}
-                </div>
-                <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700">
-                  <span>View Full Calendar</span>
-                  <ArrowRight size={14} className="ml-1" />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+
+          {/* Event Type */}
+          <div className="space-y-2">
+            <Label htmlFor="type">
+              <Users className="w-4 h-4 inline mr-1" />
+              Event Type
+            </Label>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="meeting">Meeting</SelectItem>
+                <SelectItem value="call">Phone Call</SelectItem>
+                <SelectItem value="appointment">Appointment</SelectItem>
+                <SelectItem value="interview">Interview</SelectItem>
+                <SelectItem value="coffee">Coffee Chat</SelectItem>
+                <SelectItem value="lunch">Lunch</SelectItem>
+                <SelectItem value="personal">Personal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Location */}
+          <div className="space-y-2">
+            <Label htmlFor="location">
+              <MapPin className="w-4 h-4 inline mr-1" />
+              Location
+            </Label>
+            <Input
+              id="location"
+              placeholder="e.g., Conference Room A, Zoom, Office"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsOpen(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={createBookingMutation.isPending}
+              className="flex-1"
+            >
+              {createBookingMutation.isPending ? "Creating..." : "Create Booking"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
