@@ -210,11 +210,11 @@ export default function ChatInterface() {
                               {slot.start.toLocaleTimeString('en-US', { 
                                 hour: 'numeric', 
                                 minute: '2-digit', 
-                                hour12: true 
+                                hour12: true
                               })} - {slot.end.toLocaleTimeString('en-US', { 
                                 hour: 'numeric', 
                                 minute: '2-digit', 
-                                hour12: true 
+                                hour12: true
                               })}
                             </div>
                             <div className="text-sm text-gray-500">{slot.label}</div>

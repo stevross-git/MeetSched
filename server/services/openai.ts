@@ -118,6 +118,7 @@ export async function generateTimeSlotSuggestions(
       }
     }
     
+    // Set the time in local timezone, not UTC
     suggestedTime.setHours(hours, minutes, 0, 0);
     
     // Handle day preferences
