@@ -64,22 +64,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ authUrl });
     } catch (error) {
       console.error('Office connection error:', error);
-      res.status(500).json({ error: "Failed to initiate office connection" });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to initiate office connection" });
     }
   });
 
-  app.post("/api/office/callback", requireAuth, async (req, res) => {
+  // OAuth callback route (public - handles redirect from Microsoft/Google)
+  app.get("/api/office/callback", async (req, res) => {
     try {
-      const { code, type } = req.body;
-      if (!code || !type) {
-        return res.status(400).json({ error: "Code and type are required" });
+      const { code, state, error } = req.query;
+      
+      if (error) {
+        console.error('OAuth error:', error);
+        return res.redirect(`http://localhost:5173?error=${encodeURIComponent(error as string)}`);
       }
-
-      const connection = await OfficeConnectionService.handleCallback(req.user!.id, type, code);
-      res.json({ connection });
+      
+      if (!code || !state) {
+        return res.redirect(`http://localhost:5173?error=missing_parameters`);
+      }
+      
+      // Parse state to get userId and type
+      const stateParts = (state as string).split(':');
+      if (stateParts.length < 2) {
+        return res.redirect(`http://localhost:5173?error=invalid_state`);
+      }
+      
+      const [userId, type] = stateParts;
+      
+      try {
+        const connection = await OfficeConnectionService.handleCallback(
+          userId, 
+          type as 'microsoft' | 'google', 
+          code as string
+        );
+        
+        // Redirect back to frontend with success
+        res.redirect(`http://localhost:5173?office_connected=true&type=${type}`);
+      } catch (error) {
+        console.error('OAuth callback error:', error);
+        res.redirect(`http://localhost:5173?error=connection_failed`);
+      }
     } catch (error) {
-      console.error('Office callback error:', error);
-      res.status(500).json({ error: "Failed to complete office connection" });
+      console.error('Callback route error:', error);
+      res.redirect(`http://localhost:5173?error=server_error`);
     }
   });
 
@@ -173,8 +199,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id
       });
       const booking = await storage.createBooking(bookingData);
+
+      // Try to sync to office calendar if connected
+      try {
+        if (req.user && OfficeConnectionService.hasValidConnection(req.user)) {
+          const syncResult = await OfficeConnectionService.syncBookingToOffice(req.user, {
+            title: booking.title,
+            description: booking.description || undefined,
+            startTime: new Date(booking.startTime),
+            endTime: new Date(booking.endTime),
+            location: booking.location || undefined,
+            isPrivate: booking.isPrivate || false,
+          });
+          
+          // Update booking with office event details
+          if (syncResult.eventId) {
+            const updatedBooking = await storage.updateBooking(booking.id, {
+              officeEventId: syncResult.eventId,
+              officeEventUrl: syncResult.eventUrl || null,
+            });
+            res.json(updatedBooking || booking);
+            return;
+          }
+        }
+      } catch (syncError) {
+        console.warn('Failed to sync booking to office calendar:', syncError);
+        // Continue even if sync fails
+      }
+
       res.json(booking);
     } catch (error) {
+      console.error('Booking creation error:', error);
       res.status(400).json({ error: "Invalid booking data" });
     }
   });

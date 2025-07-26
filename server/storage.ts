@@ -41,6 +41,7 @@ export interface IStorage {
   getBooking(id: number): Promise<Booking | undefined>;
   getBookingsByDateRange(startDate: Date, endDate: Date, userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
+  updateBooking(id: number, data: Partial<Booking>): Promise<Booking | undefined>;
   updateBookingStatus(id: number, status: string): Promise<Booking | undefined>;
   
   // Chat Messages
@@ -78,8 +79,121 @@ export class MemStorage implements IStorage {
     this.currentPreferenceId = 1;
     this.currentUserId = 1;
     
-    // No demo data initialization for production
-    console.log('Production storage initialized - no demo data');
+    // Initialize with demo user for testing
+    this.initializeDemoData();
+    console.log('Memory storage initialized with demo data');
+  }
+
+  private initializeDemoData() {
+    // Create demo user
+    const demoUser: User = {
+      id: "demo_user",
+      email: "demo@aibookme.ai",
+      name: "Demo User",
+      avatar: null,
+      isPrivateMode: false,
+      officeConnectionStatus: "disconnected",
+      officeConnectionType: null,
+      officeAccessToken: null,
+      officeRefreshToken: null,
+      officeCalendarId: null,
+      createdAt: new Date(),
+      lastLoginAt: new Date(),
+    };
+    this.users.set("demo_user", demoUser);
+
+    // Create demo contacts
+    const demoContacts: Contact[] = [
+      {
+        id: this.currentContactId++,
+        userId: "demo_user",
+        name: "Sarah Chen",
+        email: "sarah.chen@company.com",
+        role: "Product Manager",
+        status: "online",
+        avatar: null,
+        isPrivate: false,
+        officeContactId: null,
+      },
+      {
+        id: this.currentContactId++,
+        userId: "demo_user",
+        name: "Alex Johnson",
+        email: "alex.johnson@company.com",
+        role: "Designer",
+        status: "offline",
+        avatar: null,
+        isPrivate: false,
+        officeContactId: null,
+      },
+      {
+        id: this.currentContactId++,
+        userId: "demo_user",
+        name: "Emma Rodriguez",
+        email: "emma.rodriguez@company.com",
+        role: "Developer",
+        status: "online",
+        avatar: null,
+        isPrivate: false,
+        officeContactId: null,
+      }
+    ];
+
+    demoContacts.forEach(contact => {
+      this.contacts.set(contact.id, contact);
+    });
+
+    // Create demo bookings for today
+    const today = new Date();
+    const demoBookings: Booking[] = [
+      {
+        id: this.currentBookingId++,
+        userId: "demo_user",
+        title: "Team Standup",
+        description: "Daily team sync",
+        startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 0),
+        endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30),
+        contactId: null,
+        type: "meeting",
+        status: "scheduled",
+        location: "Conference Room A",
+        isAllDay: false,
+        isPrivate: false,
+        officeEventId: null,
+        officeEventUrl: null,
+      },
+      {
+        id: this.currentBookingId++,
+        userId: "demo_user",
+        title: "Product Review",
+        description: "Review latest product features",
+        startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 14, 0),
+        endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 15, 0),
+        contactId: 1,
+        type: "meeting",
+        status: "scheduled",
+        location: "Zoom",
+        isAllDay: false,
+        isPrivate: false,
+        officeEventId: null,
+        officeEventUrl: null,
+      }
+    ];
+
+    demoBookings.forEach(booking => {
+      this.bookings.set(booking.id, booking);
+    });
+
+    // Create welcome message
+    const welcomeMessage: ChatMessage = {
+      id: this.currentChatMessageId++,
+      userId: "demo_user",
+      content: "Hi! I'm your AI scheduling assistant. You can tell me things like 'Book me a meeting with Sam next week' or 'Schedule dinner with Alex Friday evening'. What would you like to schedule?",
+      sender: "ai",
+      timestamp: new Date(),
+      metadata: null,
+    };
+    this.chatMessages.set(welcomeMessage.id, welcomeMessage);
   }
 
   // Users & Authentication
@@ -238,6 +352,15 @@ export class MemStorage implements IStorage {
     };
     this.bookings.set(id, booking);
     return booking;
+  }
+
+  async updateBooking(id: number, data: Partial<Booking>): Promise<Booking | undefined> {
+    const booking = this.bookings.get(id);
+    if (!booking) return undefined;
+    
+    const updatedBooking = { ...booking, ...data };
+    this.bookings.set(id, updatedBooking);
+    return updatedBooking;
   }
 
   async updateBookingStatus(id: number, status: string): Promise<Booking | undefined> {

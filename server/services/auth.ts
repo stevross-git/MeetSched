@@ -66,10 +66,12 @@ export class AuthService {
 // Authentication middleware
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '') || 
-                  req.cookies?.session_token ||
-                  req.headers['x-session-token'] as string;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
+    const token = authHeader.replace('Bearer ', '');
     if (!token) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -91,15 +93,15 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 // Optional auth middleware (doesn't block if no auth)
 export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '') || 
-                  req.cookies?.session_token ||
-                  req.headers['x-session-token'] as string;
-
-    if (token) {
-      const sessionData = await AuthService.validateSession(token);
-      if (sessionData) {
-        req.user = sessionData.user;
-        req.session = sessionData.session;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      if (token) {
+        const sessionData = await AuthService.validateSession(token);
+        if (sessionData) {
+          req.user = sessionData.user;
+          req.session = sessionData.session;
+        }
       }
     }
     next();

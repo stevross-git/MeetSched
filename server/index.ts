@@ -1,3 +1,18 @@
+// Add this at the very top of server/index.ts
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+// Debug environment loading
+console.log('=== ENVIRONMENT DEBUG ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
+console.log('MICROSOFT_CLIENT_ID:', process.env.MICROSOFT_CLIENT_ID);
+console.log('MICROSOFT_CLIENT_SECRET exists:', !!process.env.MICROSOFT_CLIENT_SECRET);
+console.log('DATABASE_URL exists:', !!process.env.DATABASE_URL);
+console.log('=== END DEBUG ===');
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
