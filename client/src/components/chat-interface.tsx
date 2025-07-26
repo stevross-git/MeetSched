@@ -172,8 +172,9 @@ export default function ChatInterface() {
 
   const renderMessage = (message: ChatMessage) => {
     if (message.sender === "ai") {
-      const isProcessing = message.metadata?.type === "processing";
-      const isTimeSlots = message.metadata?.type === "time_slots";
+      const metadata = message.metadata as any;
+      const isProcessing = metadata?.type === "processing";
+      const isTimeSlots = metadata?.type === "time_slots";
       
       return (
         <div key={message.id} className="flex items-start space-x-3">

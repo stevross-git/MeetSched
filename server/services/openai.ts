@@ -80,38 +80,64 @@ export async function generateTimeSlotSuggestions(
     let hours = 14; // Default to 2pm if parsing fails
     let minutes = 0;
     
-    // Look for "2pm", "2:00pm", "14:00", etc.
-    if (intent.preferred_time.includes('2pm') || intent.preferred_time.includes('2:00 PM')) {
+    // Enhanced time parsing to handle various formats
+    const timeStr = intent.preferred_time.toLowerCase();
+    
+    // Handle specific common cases first
+    if (timeStr.includes('11am') || timeStr.includes('11:00 am')) {
+      hours = 11;
+    } else if (timeStr.includes('2pm') || timeStr.includes('2:00 pm')) {
       hours = 14;
-    } else if (intent.preferred_time.includes('2am') || intent.preferred_time.includes('2:00 AM')) {
-      hours = 2;
     } else {
-      // General parsing
-      const timeMatch = intent.preferred_time.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)?/i);
+      // General parsing with improved regex
+      const timeMatch = intent.preferred_time.match(/(\d{1,2}):?(\d{0,2})?\s*(am|pm)/i);
       if (timeMatch) {
         hours = parseInt(timeMatch[1]);
         minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-        const ampm = timeMatch[3]?.toLowerCase();
+        const ampm = timeMatch[3].toLowerCase();
         
-        if (ampm === 'pm' && hours !== 12) hours += 12;
-        if (ampm === 'am' && hours === 12) hours = 0;
-        
-        // If no am/pm specified and hour is reasonable for PM, assume PM
-        if (!ampm && hours >= 1 && hours <= 11) hours += 12;
+        if (ampm === 'pm' && hours !== 12) {
+          hours += 12;
+        } else if (ampm === 'am' && hours === 12) {
+          hours = 0;
+        }
+        // For AM times, keep hours as is (unless it's 12am = 0)
+      } else {
+        // Fallback - try to extract just the number
+        const numberMatch = intent.preferred_time.match(/(\d{1,2})/);
+        if (numberMatch) {
+          hours = parseInt(numberMatch[1]);
+          // If time seems like it should be AM (reasonable morning hours)
+          if (hours >= 6 && hours <= 11) {
+            // Keep as AM
+          } else if (hours >= 1 && hours <= 5) {
+            // Could be PM
+            hours += 12;
+          }
+        }
       }
     }
     
     suggestedTime.setHours(hours, minutes, 0, 0);
     
     // Handle day preferences
-    if (intent.preferred_day?.toLowerCase().includes('tomorrow')) {
+    const dayStr = intent.preferred_day?.toLowerCase() || '';
+    
+    if (dayStr.includes('tomorrow')) {
       suggestedTime.setDate(now.getDate() + 1);
-    } else if (intent.preferred_day?.toLowerCase().includes('tuesday')) {
-      // Find next Tuesday
-      const currentDay = now.getDay(); // 0 = Sunday, 2 = Tuesday
+    } else if (dayStr.includes('tuesday')) {
+      const currentDay = now.getDay();
       let daysUntilTuesday = (2 - currentDay + 7) % 7;
-      if (daysUntilTuesday === 0) daysUntilTuesday = 7; // Next Tuesday if today is Tuesday
+      if (daysUntilTuesday === 0) daysUntilTuesday = 7;
       suggestedTime.setDate(now.getDate() + daysUntilTuesday);
+    } else if (dayStr.includes('saturday') || dayStr.includes('satru')) { // Handle typo "satruday"
+      const currentDay = now.getDay();
+      let daysUntilSaturday = (6 - currentDay + 7) % 7;
+      if (daysUntilSaturday === 0) daysUntilSaturday = 7;
+      suggestedTime.setDate(now.getDate() + daysUntilSaturday);
+    } else {
+      // Default to tomorrow if no specific day mentioned
+      suggestedTime.setDate(now.getDate() + 1);
     }
     
     const endTime = new Date(suggestedTime);
