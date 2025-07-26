@@ -207,14 +207,16 @@ export default function ChatInterface() {
                         <div className="flex items-center justify-between">
                           <div>
                             <div className="font-medium text-gray-900 group-hover:text-blue-600">
-                              {slot.start.toLocaleTimeString('en-US', { 
+                              {new Date(slot.start).toLocaleTimeString('en-US', { 
                                 hour: 'numeric', 
                                 minute: '2-digit', 
-                                hour12: true
-                              })} - {slot.end.toLocaleTimeString('en-US', { 
+                                hour12: true,
+                                timeZone: 'UTC'
+                              })} - {new Date(slot.end).toLocaleTimeString('en-US', { 
                                 hour: 'numeric', 
                                 minute: '2-digit', 
-                                hour12: true
+                                hour12: true,
+                                timeZone: 'UTC'
                               })}
                             </div>
                             <div className="text-sm text-gray-500">{slot.label}</div>

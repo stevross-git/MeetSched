@@ -148,7 +148,17 @@ export async function generateTimeSlotSuggestions(
     if (daysUntilSunday === 0) daysUntilSunday = 7;
     suggestedTime.setDate(now.getDate() + daysUntilSunday);
   } else {
-    suggestedTime.setDate(now.getDate() + 1);
+    // If no specific day mentioned, check if the time is still available today
+    const requestedTime = new Date();
+    requestedTime.setHours(hours, minutes, 0, 0);
+    
+    if (requestedTime > now) {
+      // Time is later today, keep today's date
+      suggestedTime.setDate(now.getDate());
+    } else {
+      // Time has passed today, suggest tomorrow
+      suggestedTime.setDate(now.getDate() + 1);
+    }
   }
   
   // Set the exact time requested
