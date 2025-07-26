@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id),
+  userId: text("user_id").notNull().references(() => users.id), // Changed from uuid to text
   name: text("name").notNull(),
   email: text("email"),
   role: text("role"),
@@ -16,7 +16,7 @@ export const contacts = pgTable("contacts", {
 
 export const bookings = pgTable("bookings", {
   id: serial("id").primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id),
+  userId: text("user_id").notNull().references(() => users.id), // Changed from uuid to text
   title: text("title").notNull(),
   description: text("description"),
   startTime: timestamp("start_time").notNull(),
@@ -33,7 +33,7 @@ export const bookings = pgTable("bookings", {
 
 export const chatMessages = pgTable("chat_messages", {
   id: serial("id").primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id),
+  userId: text("user_id").notNull().references(() => users.id), // Changed from uuid to text
   content: text("content").notNull(),
   sender: text("sender").notNull(), // 'user' or 'ai'
   timestamp: timestamp("timestamp").notNull().defaultNow(),
@@ -42,7 +42,7 @@ export const chatMessages = pgTable("chat_messages", {
 
 // Users table for authentication and profile management
 export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
+  id: text("id").primaryKey(), // Changed from uuid to text to support "demo_user"
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   avatar: text("avatar"),
@@ -58,7 +58,7 @@ export const users = pgTable("users", {
 
 export const userPreferences = pgTable("user_preferences", {
   id: serial("id").primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id),
+  userId: text("user_id").notNull().references(() => users.id), // Changed from uuid to text
   key: text("key").notNull(),
   value: text("value").notNull(),
 });
@@ -66,7 +66,7 @@ export const userPreferences = pgTable("user_preferences", {
 // User sessions for authentication
 export const userSessions = pgTable("user_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull().references(() => users.id),
+  userId: text("user_id").notNull().references(() => users.id), // Changed from uuid to text
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

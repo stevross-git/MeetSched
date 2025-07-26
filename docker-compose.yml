@@ -1,0 +1,75 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    container_name: aibookme-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aibookme
+      POSTGRES_USER: aibookme_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+      - ./docker/postgres/backups:/backups
+    networks:
+      - aibookme-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aibookme_user -d aibookme"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # pgAdmin (Optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: aibookme-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@aibookme.com
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json
+    networks:
+      - aibookme-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Redis (Optional - for caching and sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: aibookme-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - aibookme-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  aibookme-network:
+    driver: bridge

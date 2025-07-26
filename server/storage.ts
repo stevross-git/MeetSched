@@ -31,24 +31,24 @@ export interface IStorage {
   deleteUserSession(token: string): Promise<void>;
   
   // Contacts
-  getContacts(userId?: string): Promise<Contact[]>;
+  getContacts(userId: string): Promise<Contact[]>;
   getContact(id: number): Promise<Contact | undefined>;
-  getContactByName(name: string, userId?: string): Promise<Contact | undefined>;
+  getContactByName(name: string, userId: string): Promise<Contact | undefined>;
   createContact(contact: InsertContact): Promise<Contact>;
   
   // Bookings
-  getBookings(userId?: string): Promise<Booking[]>;
+  getBookings(userId: string): Promise<Booking[]>;
   getBooking(id: number): Promise<Booking | undefined>;
-  getBookingsByDateRange(startDate: Date, endDate: Date, userId?: string): Promise<Booking[]>;
+  getBookingsByDateRange(startDate: Date, endDate: Date, userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBookingStatus(id: number, status: string): Promise<Booking | undefined>;
   
   // Chat Messages
-  getChatMessages(userId?: string): Promise<ChatMessage[]>;
+  getChatMessages(userId: string): Promise<ChatMessage[]>;
   createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
   
   // User Preferences
-  getUserPreference(key: string, userId?: string): Promise<UserPreference | undefined>;
+  getUserPreference(key: string, userId: string): Promise<UserPreference | undefined>;
   setUserPreference(preference: InsertUserPreference): Promise<UserPreference>;
 }
 
@@ -78,90 +78,8 @@ export class MemStorage implements IStorage {
     this.currentPreferenceId = 1;
     this.currentUserId = 1;
     
-    // Initialize with some sample data
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData() {
-    // Create a demo user first
-    const demoUser: User = {
-      id: "demo_user",
-      email: "demo@bookme.ai",
-      name: "Demo User",
-      avatar: null,
-      isPrivateMode: false,
-      officeConnectionStatus: "disconnected",
-      officeConnectionType: null,
-      officeAccessToken: null,
-      officeRefreshToken: null,
-      officeCalendarId: null,
-      createdAt: new Date(),
-      lastLoginAt: new Date(),
-    };
-    this.users.set(demoUser.id, demoUser);
-
-    // Add sample contacts
-    const sampleContacts = [
-      { userId: "demo_user", name: "Sarah Chen", email: "sarah.chen@company.com", role: "Product Manager", status: "online", isPrivate: false, officeContactId: null, avatar: null },
-      { userId: "demo_user", name: "Alex Johnson", email: "alex.johnson@company.com", role: "Designer", status: "offline", isPrivate: false, officeContactId: null, avatar: null },
-      { userId: "demo_user", name: "Emma Rodriguez", email: "emma.rodriguez@company.com", role: "Developer", status: "online", isPrivate: false, officeContactId: null, avatar: null },
-    ];
-
-    sampleContacts.forEach(contact => {
-      const newContact: Contact = { ...contact, id: this.currentContactId++ };
-      this.contacts.set(newContact.id, newContact);
-    });
-
-    // Add sample bookings for today
-    const today = new Date();
-    const sampleBookings = [
-      {
-        userId: "demo_user",
-        title: "Team Standup",
-        description: "Daily team sync",
-        startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 0),
-        endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30),
-        contactId: null,
-        type: "meeting",
-        status: "scheduled",
-        location: "Conference Room A",
-        isAllDay: false,
-        isPrivate: false,
-        officeEventId: null,
-        officeEventUrl: null,
-      },
-      {
-        userId: "demo_user",
-        title: "Product Review",
-        description: "Review latest product features",
-        startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 14, 0),
-        endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 15, 0),
-        contactId: 1,
-        type: "meeting",
-        status: "scheduled",
-        location: "Zoom",
-        isAllDay: false,
-        isPrivate: false,
-        officeEventId: null,
-        officeEventUrl: null,
-      },
-    ];
-
-    sampleBookings.forEach(booking => {
-      const newBooking: Booking = { ...booking, id: this.currentBookingId++ };
-      this.bookings.set(newBooking.id, newBooking);
-    });
-
-    // Add welcome message
-    const welcomeMessage: ChatMessage = {
-      id: this.currentChatMessageId++,
-      userId: "demo_user",
-      content: "Hi! I'm your AI scheduling assistant. You can tell me things like 'Book me a meeting with Sam next week' or 'Schedule dinner with Alex Friday evening'. What would you like to schedule?",
-      sender: "ai",
-      timestamp: new Date(),
-      metadata: null,
-    };
-    this.chatMessages.set(welcomeMessage.id, welcomeMessage);
+    // No demo data initialization for production
+    console.log('Production storage initialized - no demo data');
   }
 
   // Users & Authentication
@@ -175,8 +93,8 @@ export class MemStorage implements IStorage {
       return existingUser;
     }
 
-    // Create new user
-    const userId = `user_${this.currentUserId++}`;
+    // Create new user with UUID
+    const userId = crypto.randomUUID();
     const newUser: User = {
       id: userId,
       email,
@@ -193,6 +111,18 @@ export class MemStorage implements IStorage {
     };
     
     this.users.set(userId, newUser);
+
+    // Create welcome message for new user
+    const welcomeMessage: ChatMessage = {
+      id: this.currentChatMessageId++,
+      userId: userId,
+      content: "Welcome to AI Book Me! I'm your personal scheduling assistant. You can tell me things like 'Book me a meeting with Sam next week' or 'Schedule dinner with Alex Friday evening'. What would you like to schedule?",
+      sender: "ai",
+      timestamp: new Date(),
+      metadata: null,
+    };
+    this.chatMessages.set(welcomeMessage.id, welcomeMessage);
+    
     return newUser;
   }
 
@@ -211,7 +141,7 @@ export class MemStorage implements IStorage {
 
   // User Sessions
   async createUserSession(session: InsertUserSession): Promise<UserSession> {
-    const sessionId = `session_${Date.now()}_${Math.random()}`;
+    const sessionId = crypto.randomUUID();
     const newSession: UserSession = {
       id: sessionId,
       ...session,
@@ -225,11 +155,15 @@ export class MemStorage implements IStorage {
   async validateUserSession(token: string): Promise<{ user: User; session: UserSession } | null> {
     const session = this.userSessions.get(token);
     if (!session || session.expiresAt < new Date()) {
+      if (session) {
+        this.userSessions.delete(token); // Clean up expired session
+      }
       return null;
     }
 
     const user = this.users.get(session.userId);
     if (!user) {
+      this.userSessions.delete(token); // Clean up orphaned session
       return null;
     }
 
@@ -240,22 +174,19 @@ export class MemStorage implements IStorage {
     this.userSessions.delete(token);
   }
 
-  // Contacts
-  async getContacts(userId?: string): Promise<Contact[]> {
-    if (userId) {
-      return Array.from(this.contacts.values()).filter(c => c.userId === userId);
-    }
-    return Array.from(this.contacts.values());
+  // Contacts (now requires userId)
+  async getContacts(userId: string): Promise<Contact[]> {
+    return Array.from(this.contacts.values()).filter(c => c.userId === userId);
   }
 
   async getContact(id: number): Promise<Contact | undefined> {
     return this.contacts.get(id);
   }
 
-  async getContactByName(name: string, userId?: string): Promise<Contact | undefined> {
+  async getContactByName(name: string, userId: string): Promise<Contact | undefined> {
     return Array.from(this.contacts.values()).find(contact => 
       contact.name.toLowerCase().includes(name.toLowerCase()) &&
-      (!userId || contact.userId === userId)
+      contact.userId === userId
     );
   }
 
@@ -274,22 +205,19 @@ export class MemStorage implements IStorage {
     return contact;
   }
 
-  // Bookings
-  async getBookings(userId?: string): Promise<Booking[]> {
-    if (userId) {
-      return Array.from(this.bookings.values()).filter(b => b.userId === userId);
-    }
-    return Array.from(this.bookings.values());
+  // Bookings (now requires userId)
+  async getBookings(userId: string): Promise<Booking[]> {
+    return Array.from(this.bookings.values()).filter(b => b.userId === userId);
   }
 
   async getBooking(id: number): Promise<Booking | undefined> {
     return this.bookings.get(id);
   }
 
-  async getBookingsByDateRange(startDate: Date, endDate: Date, userId?: string): Promise<Booking[]> {
+  async getBookingsByDateRange(startDate: Date, endDate: Date, userId: string): Promise<Booking[]> {
     return Array.from(this.bookings.values()).filter(
       booking => booking.startTime >= startDate && booking.startTime <= endDate &&
-      (!userId || booking.userId === userId)
+      booking.userId === userId
     );
   }
 
@@ -321,12 +249,9 @@ export class MemStorage implements IStorage {
     return booking;
   }
 
-  // Chat Messages
-  async getChatMessages(userId?: string): Promise<ChatMessage[]> {
-    let messages = Array.from(this.chatMessages.values());
-    if (userId) {
-      messages = messages.filter(m => m.userId === userId);
-    }
+  // Chat Messages (now requires userId)
+  async getChatMessages(userId: string): Promise<ChatMessage[]> {
+    const messages = Array.from(this.chatMessages.values()).filter(m => m.userId === userId);
     return messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
@@ -342,9 +267,9 @@ export class MemStorage implements IStorage {
     return message;
   }
 
-  // User Preferences  
-  async getUserPreference(key: string, userId?: string): Promise<UserPreference | undefined> {
-    const prefKey = userId ? `${userId}:${key}` : key;
+  // User Preferences (now requires userId)
+  async getUserPreference(key: string, userId: string): Promise<UserPreference | undefined> {
+    const prefKey = `${userId}:${key}`;
     return this.userPreferences.get(prefKey);
   }
 

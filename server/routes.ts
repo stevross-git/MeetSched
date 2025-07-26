@@ -9,12 +9,12 @@ import {
   type BookingIntent 
 } from "@shared/schema";
 import { parseBookingIntent, generateTimeSlotSuggestions } from "./services/openai";
-import { AuthService, requireAuth, optionalAuth } from "./services/auth";
+import { AuthService, requireAuth } from "./services/auth";
 import { OfficeConnectionService } from "./services/office";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Authentication routes
+  // Authentication routes (only public routes)
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, name } = req.body;
@@ -52,15 +52,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Office connection routes
+  // Office connection routes (require authentication)
   app.post("/api/office/connect", requireAuth, async (req, res) => {
     try {
-      const { type } = req.body; // 'microsoft' or 'google'
+      const { type } = req.body;
       if (!type || !['microsoft', 'google'].includes(type)) {
         return res.status(400).json({ error: "Invalid connection type" });
       }
 
-      const authUrl = await OfficeConnectionService.getAuthUrl(type, req.user.id);
+      const authUrl = await OfficeConnectionService.getAuthUrl(type, req.user!.id);
       res.json({ authUrl });
     } catch (error) {
       console.error('Office connection error:', error);
@@ -75,7 +75,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Code and type are required" });
       }
 
-      const connection = await OfficeConnectionService.handleCallback(req.user.id, type, code);
+      const connection = await OfficeConnectionService.handleCallback(req.user!.id, type, code);
       res.json({ connection });
     } catch (error) {
       console.error('Office callback error:', error);
@@ -85,40 +85,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/office/disconnect", requireAuth, async (req, res) => {
     try {
-      await OfficeConnectionService.disconnect(req.user.id);
+      await OfficeConnectionService.disconnect(req.user!.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to disconnect office" });
     }
   });
 
-  // User preferences
+  // User preferences (require authentication)
   app.put("/api/user/privacy", requireAuth, async (req, res) => {
     try {
       const { isPrivateMode } = req.body;
-      const updatedUser = await storage.updateUser(req.user.id, { isPrivateMode });
+      const updatedUser = await storage.updateUser(req.user!.id, { isPrivateMode });
       res.json({ user: updatedUser });
     } catch (error) {
       res.status(500).json({ error: "Failed to update privacy settings" });
     }
   });
 
-  // Chat endpoints (now with user context)
-  app.get("/api/chat/messages", optionalAuth, async (req, res) => {
+  // Chat endpoints (require authentication)
+  app.get("/api/chat/messages", requireAuth, async (req, res) => {
     try {
-      const userId = req.user?.id;
-      const messages = await storage.getChatMessages(userId);
+      const messages = await storage.getChatMessages(req.user!.id);
       res.json(messages);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch messages" });
     }
   });
 
-  app.post("/api/chat/messages", optionalAuth, async (req, res) => {
+  app.post("/api/chat/messages", requireAuth, async (req, res) => {
     try {
       const messageData = insertChatMessageSchema.parse({
         ...req.body,
-        userId: req.user?.id || "demo_user"
+        userId: req.user!.id
       });
       const message = await storage.createChatMessage(messageData);
       res.json(message);
@@ -128,19 +127,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // AI booking intent parsing
-  app.post("/api/ai/parse-booking", optionalAuth, async (req, res) => {
+  // AI booking intent parsing (require authentication)
+  app.post("/api/ai/parse-booking", requireAuth, async (req, res) => {
     try {
       const { message } = req.body;
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: "Message is required" });
       }
 
-      const userId = req.user?.id;
       const intent = await parseBookingIntent(message);
       
       // Get existing bookings for context
-      const existingBookings = await storage.getBookings(userId);
+      const existingBookings = await storage.getBookings(req.user!.id);
       
       // Generate time slot suggestions
       const { timeSlots } = await generateTimeSlotSuggestions(intent, existingBookings);
@@ -158,22 +156,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Booking endpoints
-  app.get("/api/bookings", optionalAuth, async (req, res) => {
+  // Booking endpoints (require authentication)
+  app.get("/api/bookings", requireAuth, async (req, res) => {
     try {
-      const userId = req.user?.id;
-      const bookings = await storage.getBookings(userId);
+      const bookings = await storage.getBookings(req.user!.id);
       res.json(bookings);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bookings" });
     }
   });
 
-  app.post("/api/bookings", optionalAuth, async (req, res) => {
+  app.post("/api/bookings", requireAuth, async (req, res) => {
     try {
       const bookingData = insertBookingSchema.parse({
         ...req.body,
-        userId: req.user?.id || "demo_user"
+        userId: req.user!.id
       });
       const booking = await storage.createBooking(bookingData);
       res.json(booking);
@@ -182,21 +179,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/bookings/today", optionalAuth, async (req, res) => {
+  app.get("/api/bookings/today", requireAuth, async (req, res) => {
     try {
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
       
-      const userId = req.user?.id;
-      const todayBookings = await storage.getBookingsByDateRange(startOfDay, endOfDay, userId);
+      const todayBookings = await storage.getBookingsByDateRange(startOfDay, endOfDay, req.user!.id);
       res.json(todayBookings);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch today's bookings" });
     }
   });
 
-  app.patch("/api/bookings/:id/status", async (req, res) => {
+  app.patch("/api/bookings/:id/status", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { status } = req.body;
@@ -205,33 +201,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Status is required" });
       }
       
-      const booking = await storage.updateBookingStatus(id, status);
-      if (!booking) {
+      // Verify booking belongs to user
+      const existingBooking = await storage.getBooking(id);
+      if (!existingBooking || existingBooking.userId !== req.user!.id) {
         return res.status(404).json({ error: "Booking not found" });
       }
       
+      const booking = await storage.updateBookingStatus(id, status);
       res.json(booking);
     } catch (error) {
       res.status(500).json({ error: "Failed to update booking status" });
     }
   });
 
-  // Contact endpoints
-  app.get("/api/contacts", optionalAuth, async (req, res) => {
+  // Contact endpoints (require authentication)
+  app.get("/api/contacts", requireAuth, async (req, res) => {
     try {
-      const userId = req.user?.id;
-      const contacts = await storage.getContacts(userId);
+      const contacts = await storage.getContacts(req.user!.id);
       res.json(contacts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch contacts" });
     }
   });
 
-  app.post("/api/contacts", optionalAuth, async (req, res) => {
+  app.post("/api/contacts", requireAuth, async (req, res) => {
     try {
       const contactData = insertContactSchema.parse({
         ...req.body,
-        userId: req.user?.id || "demo_user"
+        userId: req.user!.id
       });
       const contact = await storage.createContact(contactData);
       res.json(contact);
@@ -240,19 +237,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/contacts/search", optionalAuth, async (req, res) => {
+  app.get("/api/contacts/search", requireAuth, async (req, res) => {
     try {
       const { name } = req.query;
       if (!name || typeof name !== 'string') {
         return res.status(400).json({ error: "Name parameter is required" });
       }
       
-      const userId = req.user?.id;
-      const contact = await storage.getContactByName(name, userId);
+      const contact = await storage.getContactByName(name, req.user!.id);
       res.json(contact || null);
     } catch (error) {
       res.status(500).json({ error: "Failed to search contacts" });
     }
+  });
+
+  // Health check endpoint (public)
+  app.get("/api/health", async (req, res) => {
+    res.json({ 
+      status: "healthy", 
+      timestamp: new Date().toISOString(),
+      version: "1.0.0"
+    });
   });
 
   const httpServer = createServer(app);
