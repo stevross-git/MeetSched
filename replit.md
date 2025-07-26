@@ -10,13 +10,15 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
-**2025-07-26**: Successfully migrated project from Replit Agent to Replit environment
-- Fixed TypeScript errors and React key warnings in calendar widget
-- Added OpenAI API key integration for AI booking functionality
-- Updated Zod schema to handle nullable fields from OpenAI responses  
-- Improved time slot parsing to better match user-specified times and days
-- All core features now functional: chat interface, calendar display, contact management
-- **FIXED**: Timezone conversion and time parsing issues resolved - booking times now display accurately
+**2025-07-26**: Successfully implemented user authentication and office connections
+- Added complete authentication system with JWT tokens and session management
+- Created user login/logout interface with profile management
+- Implemented office connection service for Microsoft Graph and Google Calendar
+- Added privacy mode toggle for users to hide their bookings
+- Updated all API endpoints to support multi-user context and data isolation
+- Created comprehensive storage layer supporting users, sessions, and office connections
+- Enhanced UI with login dialog, user menu, and connection status indicators
+- **MAJOR FEATURE**: Full multi-user support with secure authentication and office integration
 
 ## System Architecture
 
@@ -43,10 +45,12 @@ Preferred communication style: Simple, everyday language.
 ## Key Components
 
 ### Core Data Models
-- **Contacts**: User's frequently contacted people with status tracking (online/offline/busy)
-- **Bookings**: Calendar events with scheduling details, participants, and status
-- **Chat Messages**: Conversation history between user and AI assistant
-- **User Preferences**: Customizable settings and AI behavior preferences
+- **Users**: Authenticated user accounts with profile information and office connection status
+- **User Sessions**: JWT-based authentication tokens with expiration management
+- **Contacts**: User's frequently contacted people with privacy controls and office integration
+- **Bookings**: Calendar events with user ownership, privacy settings, and office synchronization
+- **Chat Messages**: User-specific conversation history with AI assistant
+- **User Preferences**: Customizable settings including privacy mode and AI behavior
 
 ### AI Processing Pipeline
 - **Intent Parsing**: Extracts booking details from natural language using OpenAI GPT-4o
@@ -54,10 +58,12 @@ Preferred communication style: Simple, everyday language.
 - **Conflict Detection**: Checks for scheduling conflicts and suggests alternatives
 
 ### UI Components
-- **Chat Interface**: Real-time conversation with AI for booking requests
-- **Calendar Widget**: Visual calendar display with event indicators
-- **Today's Schedule**: Quick overview of daily appointments
-- **Contacts Widget**: Frequently contacted people with status indicators
+- **Authentication System**: Login dialog and user menu with profile management
+- **Chat Interface**: User-specific conversation with AI for booking requests
+- **Calendar Widget**: Personal calendar display with privacy controls
+- **Today's Schedule**: User's daily appointments with office connection sync
+- **Contacts Widget**: Personal contacts with privacy and office integration
+- **Office Connection**: Microsoft Graph and Google Calendar integration interface
 
 ## Data Flow
 

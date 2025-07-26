@@ -4,14 +4,27 @@ import ChatInterface from "@/components/chat-interface";
 import CalendarWidget from "@/components/calendar-widget";
 import ContactsWidget from "@/components/contacts-widget";
 import TodaySchedule from "@/components/today-schedule";
-import { Bot, Settings, User, History, SlidersHorizontal } from "lucide-react";
+import { LoginDialog } from "@/components/login-dialog";
+import { UserMenu } from "@/components/user-menu";
+import { useAuth } from "@/hooks/use-auth";
+import { Bot, Settings, User, History, SlidersHorizontal, Shield, Link as LinkIcon } from "lucide-react";
 
 export default function Home() {
+  const { user, token, login, logout, isLoading } = useAuth();
+  
   const { data: todayBookings } = useQuery({
     queryKey: ["/api/bookings/today"],
   });
 
   const bookingsCount = Array.isArray(todayBookings) ? todayBookings.length : 0;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -29,16 +42,34 @@ export default function Home() {
           </div>
           
           <div className="flex items-center space-x-4">
-            <div className="hidden md:flex items-center space-x-2 text-sm text-gray-600">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-              <span>AI Online</span>
-            </div>
-            <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-              <Settings size={18} />
-            </button>
-            <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-              <User className="text-gray-600" size={14} />
-            </div>
+            {user && (
+              <div className="hidden md:flex items-center space-x-4">
+                <div className="flex items-center space-x-2 text-sm text-gray-600">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                  <span>AI Online</span>
+                </div>
+                
+                {user.isPrivateMode && (
+                  <div className="flex items-center space-x-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">
+                    <Shield className="w-3 h-3" />
+                    <span>Private</span>
+                  </div>
+                )}
+                
+                {user.officeConnectionStatus === 'connected' && (
+                  <div className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                    <LinkIcon className="w-3 h-3" />
+                    <span>{user.officeConnectionType === 'microsoft' ? 'Outlook' : 'Google'}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {user && token ? (
+              <UserMenu user={user} token={token} onLogout={logout} />
+            ) : (
+              <LoginDialog onLoginSuccess={login} />
+            )}
           </div>
         </div>
       </header>
