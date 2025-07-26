@@ -16,6 +16,7 @@ Preferred communication style: Simple, everyday language.
 - Updated Zod schema to handle nullable fields from OpenAI responses  
 - Improved time slot parsing to better match user-specified times and days
 - All core features now functional: chat interface, calendar display, contact management
+- **FIXED**: Timezone conversion and time parsing issues resolved - booking times now display accurately
 
 ## System Architecture
 
