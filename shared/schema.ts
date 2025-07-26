@@ -72,13 +72,13 @@ export type InsertUserPreference = z.infer<typeof insertUserPreferenceSchema>;
 // AI Booking Intent Schema
 export const bookingIntentSchema = z.object({
   event_type: z.string(),
-  preferred_day: z.string().optional(),
-  preferred_time: z.string().optional(),
-  time_window: z.string().optional(),
-  location: z.string().optional(),
+  preferred_day: z.string().nullish(),
+  preferred_time: z.string().nullish(),
+  time_window: z.string().nullish(),
+  location: z.string().nullish(),
   duration_minutes: z.number().default(60),
   invitees: z.array(z.string()).default([]),
-  notes: z.string().optional(),
+  notes: z.string().nullish(),
 });
 
 export type BookingIntent = z.infer<typeof bookingIntentSchema>;
