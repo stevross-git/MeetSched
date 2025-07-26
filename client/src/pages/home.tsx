@@ -118,10 +118,10 @@ export default function Home() {
     );
   }
 
-  // Authenticated user interface
+  // Authenticated user interface - this is what you're seeing now
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* Header */}
+      {/* Header with User Menu */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -156,6 +156,7 @@ export default function Home() {
               )}
             </div>
             
+            {/* User Menu - This is what should show user info */}
             <UserMenu user={user} token={token} onLogout={logout} />
           </div>
         </div>

@@ -75,17 +75,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (error) {
         console.error('OAuth error:', error);
-        return res.redirect(`http://localhost:5173?error=${encodeURIComponent(error as string)}`);
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}?error=${encodeURIComponent(error as string)}`);
       }
       
       if (!code || !state) {
-        return res.redirect(`http://localhost:5173?error=missing_parameters`);
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}?error=missing_parameters`);
       }
       
       // Parse state to get userId and type
       const stateParts = (state as string).split(':');
       if (stateParts.length < 2) {
-        return res.redirect(`http://localhost:5173?error=invalid_state`);
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}?error=invalid_state`);
       }
       
       const [userId, type] = stateParts;
@@ -98,14 +98,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         
         // Redirect back to frontend with success
-        res.redirect(`http://localhost:5173?office_connected=true&type=${type}`);
+        const successUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}?office_connected=true&type=${type}&calendar=${encodeURIComponent(connection.calendarName || 'Calendar')}`;
+        res.redirect(successUrl);
       } catch (error) {
         console.error('OAuth callback error:', error);
-        res.redirect(`http://localhost:5173?error=connection_failed`);
+        const errorMessage = error instanceof Error ? error.message : 'connection_failed';
+        res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}?error=${encodeURIComponent(errorMessage)}`);
       }
     } catch (error) {
       console.error('Callback route error:', error);
-      res.redirect(`http://localhost:5173?error=server_error`);
+      res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}?error=server_error`);
     }
   });
 
@@ -115,6 +117,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to disconnect office" });
+    }
+  });
+
+  // Get office connection status
+  app.get("/api/office/status", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      res.json({
+        connected: user.officeConnectionStatus === 'connected',
+        type: user.officeConnectionType,
+        status: user.officeConnectionStatus,
+        hasCalendar: !!user.officeCalendarId
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get office status" });
+    }
+  });
+
+  // Sync office data manually
+  app.post("/api/office/sync", requireAuth, async (req, res) => {
+    try {
+      await OfficeConnectionService.syncUserData(req.user!);
+      res.json({ 
+        success: true, 
+        message: "Calendar and contacts synced successfully" 
+      });
+    } catch (error) {
+      console.error('Office sync error:', error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to sync office data" 
+      });
     }
   });
 
@@ -163,7 +196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const intent = await parseBookingIntent(message);
       
-      // Get existing bookings for context
+      // Get existing bookings for context (includes synced calendar events)
       const existingBookings = await storage.getBookings(req.user!.id);
       
       // Generate time slot suggestions
@@ -172,7 +205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         intent, 
         timeSlots,
-        message: "I've analyzed your request. Here are some available time slots:"
+        message: "I've analyzed your request and checked your calendar. Here are some available time slots:"
       });
     } catch (error) {
       console.error("AI parsing error:", error);
@@ -201,9 +234,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const booking = await storage.createBooking(bookingData);
 
       // Try to sync to office calendar if connected
+      let syncResult = null;
       try {
         if (req.user && OfficeConnectionService.hasValidConnection(req.user)) {
-          const syncResult = await OfficeConnectionService.syncBookingToOffice(req.user, {
+          console.log(`Syncing booking to ${req.user.officeConnectionType} calendar...`);
+          
+          syncResult = await OfficeConnectionService.syncBookingToOffice(req.user, {
             title: booking.title,
             description: booking.description || undefined,
             startTime: new Date(booking.startTime),
@@ -212,22 +248,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isPrivate: booking.isPrivate || false,
           });
           
+          console.log('Calendar sync successful:', syncResult);
+          
           // Update booking with office event details
           if (syncResult.eventId) {
             const updatedBooking = await storage.updateBooking(booking.id, {
               officeEventId: syncResult.eventId,
               officeEventUrl: syncResult.eventUrl || null,
             });
-            res.json(updatedBooking || booking);
-            return;
+            
+            if (updatedBooking) {
+              res.json({
+                ...updatedBooking,
+                _syncStatus: 'success',
+                _syncType: req.user.officeConnectionType
+              });
+              return;
+            }
           }
+        } else {
+          console.log('No office connection available for sync');
         }
       } catch (syncError) {
         console.warn('Failed to sync booking to office calendar:', syncError);
-        // Continue even if sync fails
+        // Continue even if sync fails - don't block booking creation
+        syncResult = { error: syncError instanceof Error ? syncError.message : 'Sync failed' };
       }
 
-      res.json(booking);
+      res.json({
+        ...booking,
+        _syncStatus: syncResult?.error ? 'failed' : 'skipped',
+        _syncError: syncResult?.error || null
+      });
     } catch (error) {
       console.error('Booking creation error:', error);
       res.status(400).json({ error: "Invalid booking data" });
@@ -306,12 +358,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Calendar sync endpoints
+  app.get("/api/calendar/events", requireAuth, async (req, res) => {
+    try {
+      const { start, end } = req.query;
+      
+      if (!start || !end) {
+        return res.status(400).json({ error: "Start and end dates are required" });
+      }
+      
+      const startDate = new Date(start as string);
+      const endDate = new Date(end as string);
+      
+      const events = await storage.getBookingsByDateRange(startDate, endDate, req.user!.id);
+      
+      // Transform bookings to calendar event format
+      const calendarEvents = events.map(booking => ({
+        id: booking.id,
+        title: booking.title,
+        start: booking.startTime,
+        end: booking.endTime,
+        description: booking.description,
+        location: booking.location,
+        type: booking.type,
+        status: booking.status,
+        isPrivate: booking.isPrivate,
+        isAllDay: booking.isAllDay,
+        officeEventId: booking.officeEventId,
+        officeEventUrl: booking.officeEventUrl
+      }));
+      
+      res.json(calendarEvents);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch calendar events" });
+    }
+  });
+
+  // People/contacts from office
+  app.get("/api/people", requireAuth, async (req, res) => {
+    try {
+      // Get all contacts (includes synced people from office)
+      const contacts = await storage.getContacts(req.user!.id);
+      
+      // Transform contacts to people format
+      const people = contacts.map(contact => ({
+        id: contact.id,
+        name: contact.name,
+        email: contact.email,
+        role: contact.role,
+        avatar: contact.avatar,
+        status: contact.status,
+        isFromOffice: !!contact.officeContactId,
+        officeId: contact.officeContactId
+      }));
+      
+      res.json(people);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch people" });
+    }
+  });
+
+  // Statistics endpoint
+  app.get("/api/stats", requireAuth, async (req, res) => {
+    try {
+      const bookings = await storage.getBookings(req.user!.id);
+      const contacts = await storage.getContacts(req.user!.id);
+      
+      const today = new Date();
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 7);
+      
+      const thisWeekBookings = bookings.filter(b => 
+        new Date(b.startTime) >= startOfWeek && new Date(b.startTime) < endOfWeek
+      );
+      
+      const syncedBookings = bookings.filter(b => !!b.officeEventId);
+      const syncedContacts = contacts.filter(c => !!c.officeContactId);
+      
+      res.json({
+        totalBookings: bookings.length,
+        thisWeekBookings: thisWeekBookings.length,
+        totalContacts: contacts.length,
+        syncedBookings: syncedBookings.length,
+        syncedContacts: syncedContacts.length,
+        syncRate: bookings.length > 0 ? (syncedBookings.length / bookings.length * 100).toFixed(1) : '0'
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch statistics" });
+    }
+  });
+
   // Health check endpoint (public)
   app.get("/api/health", async (req, res) => {
     res.json({ 
       status: "healthy", 
       timestamp: new Date().toISOString(),
-      version: "1.0.0"
+      version: "1.0.0",
+      features: {
+        auth: true,
+        microsoftOffice: !!process.env.MICROSOFT_CLIENT_ID,
+        googleCalendar: !!process.env.GOOGLE_CLIENT_ID,
+        openaiIntegration: !!process.env.OPENAI_API_KEY,
+        calendarSync: true,
+        peopleSync: true
+      }
     });
   });
 

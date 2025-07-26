@@ -80,7 +80,7 @@ export class OfficeConnectionService {
     
     if (type === 'microsoft') {
       const clientId = process.env.MICROSOFT_CLIENT_ID;
-      const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5000/api/office/callback';
+      const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${process.env.CLIENT_URL || 'http://localhost:5173'}/api/office/callback`;
       
       if (!clientId) {
         throw new Error('Microsoft client ID not configured. Please set MICROSOFT_CLIENT_ID in environment variables.');
@@ -89,7 +89,7 @@ export class OfficeConnectionService {
       return this.generateMicrosoftAuthUrl(clientId, redirectUri, state);
     } else if (type === 'google') {
       const clientId = process.env.GOOGLE_CLIENT_ID;
-      const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/api/office/callback';
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.CLIENT_URL || 'http://localhost:5173'}/api/office/callback`;
       
       if (!clientId) {
         throw new Error('Google client ID not configured. Please set GOOGLE_CLIENT_ID in environment variables.');
@@ -103,26 +103,34 @@ export class OfficeConnectionService {
 
   // Handle OAuth callback
   static async handleCallback(userId: string, type: 'microsoft' | 'google', code: string): Promise<any> {
+    console.log(`Handling ${type} OAuth callback for user ${userId}`);
+    
     if (type === 'microsoft') {
       const clientId = process.env.MICROSOFT_CLIENT_ID;
       const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
-      const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5000/api/office/callback';
+      const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${process.env.CLIENT_URL || 'http://localhost:5173'}/api/office/callback`;
 
       if (!clientId) {
         throw new Error('Microsoft OAuth credentials not configured');
       }
 
       try {
+        console.log('Exchanging Microsoft authorization code for tokens...');
         // Exchange code for tokens
         const tokenResponse = await this.exchangeMicrosoftCode(code, clientId, clientSecret || '', redirectUri);
+        console.log('Token exchange successful, getting user calendars...');
         
         // Get user's primary calendar
         const calendars = await this.getMicrosoftCalendars(tokenResponse.accessToken);
+        console.log(`Found ${calendars.length} calendars`);
+        
         const primaryCalendar = calendars.find(cal => cal.isDefaultCalendar) || calendars[0];
 
         if (!primaryCalendar) {
           throw new Error('No calendar found');
         }
+
+        console.log(`Using calendar: ${primaryCalendar.name} (${primaryCalendar.id})`);
 
         // Update user with connection details
         await storage.updateUser(userId, {
@@ -133,6 +141,8 @@ export class OfficeConnectionService {
           officeCalendarId: primaryCalendar.id,
         });
 
+        console.log('Microsoft Office connection completed successfully');
+
         return {
           type: 'microsoft',
           status: 'connected',
@@ -141,11 +151,55 @@ export class OfficeConnectionService {
         };
       } catch (error) {
         console.error('Microsoft OAuth error:', error);
-        throw new Error('Failed to connect Microsoft Outlook');
+        // Update user with error status
+        await storage.updateUser(userId, {
+          officeConnectionStatus: 'error',
+        });
+        throw new Error(`Failed to connect Microsoft Outlook: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (type === 'google') {
-      // TODO: Implement Google OAuth
-      throw new Error('Google Calendar integration not yet implemented');
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.CLIENT_URL || 'http://localhost:5173'}/api/office/callback`;
+
+      if (!clientId || !clientSecret) {
+        throw new Error('Google OAuth credentials not configured');
+      }
+
+      try {
+        console.log('Exchanging Google authorization code for tokens...');
+        const tokenResponse = await this.exchangeGoogleCode(code, clientId, clientSecret, redirectUri);
+        console.log('Token exchange successful, getting user info...');
+
+        // Get user's primary calendar
+        const userInfo = await this.getGoogleUserInfo(tokenResponse.accessToken);
+        console.log(`Connected Google account: ${userInfo.email}`);
+
+        // Update user with connection details
+        await storage.updateUser(userId, {
+          officeConnectionStatus: 'connected',
+          officeConnectionType: 'google',
+          officeAccessToken: tokenResponse.accessToken,
+          officeRefreshToken: tokenResponse.refreshToken,
+          officeCalendarId: 'primary', // Google uses 'primary' for the main calendar
+        });
+
+        console.log('Google Calendar connection completed successfully');
+
+        return {
+          type: 'google',
+          status: 'connected',
+          calendarName: 'Google Calendar',
+          message: 'Google Calendar connected successfully'
+        };
+      } catch (error) {
+        console.error('Google OAuth error:', error);
+        // Update user with error status
+        await storage.updateUser(userId, {
+          officeConnectionStatus: 'error',
+        });
+        throw new Error(`Failed to connect Google Calendar: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
     
     throw new Error('Unsupported connection type');
@@ -182,6 +236,7 @@ export class OfficeConnectionService {
       prompt: 'select_account' // Always show account picker
     });
 
+    console.log(`Generated Microsoft auth URL: ${authUrl}/authorize`);
     return `${authUrl}/authorize?${params.toString()}`;
   }
 
@@ -203,6 +258,7 @@ export class OfficeConnectionService {
       prompt: 'consent'
     });
 
+    console.log(`Generated Google auth URL: ${this.GOOGLE_AUTH_URL}`);
     return `${this.GOOGLE_AUTH_URL}?${params.toString()}`;
   }
 
@@ -214,6 +270,7 @@ export class OfficeConnectionService {
     redirectUri: string
   ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
     const authUrl = this.getGraphAuthUrl();
+    console.log(`Exchanging code at: ${authUrl}/token`);
     
     // Try with client secret first (confidential client)
     let body = new URLSearchParams({
@@ -224,21 +281,25 @@ export class OfficeConnectionService {
     });
 
     // Add client secret if provided
-    if (clientSecret) {
+    if (clientSecret && clientSecret.trim()) {
       body.append('client_secret', clientSecret);
+      console.log('Using confidential client flow (with client_secret)');
+    } else {
+      console.log('Using public client flow (no client_secret)');
     }
     
     let response = await fetch(`${authUrl}/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
       },
       body: body.toString(),
     });
 
     // If failed with client secret, try without (public client)
-    if (!response.ok && clientSecret) {
-      console.log('Trying public client flow (without client_secret)...');
+    if (!response.ok && clientSecret && clientSecret.trim()) {
+      console.log('Confidential client failed, trying public client flow (without client_secret)...');
       
       body = new URLSearchParams({
         client_id: clientId,
@@ -251,6 +312,7 @@ export class OfficeConnectionService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
         },
         body: body.toString(),
       });
@@ -259,7 +321,48 @@ export class OfficeConnectionService {
     if (!response.ok) {
       const error = await response.text();
       console.error('Microsoft token exchange error:', error);
-      throw new Error(`Microsoft token exchange failed: ${response.status} ${response.statusText}`);
+      console.error('Response status:', response.status, response.statusText);
+      throw new Error(`Microsoft token exchange failed: ${response.status} ${response.statusText} - ${error}`);
+    }
+
+    const data = await response.json();
+    console.log('Token exchange successful');
+    
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || null,
+      expiresIn: data.expires_in,
+    };
+  }
+
+  // Exchange Google authorization code for tokens
+  static async exchangeGoogleCode(
+    code: string,
+    clientId: string,
+    clientSecret: string,
+    redirectUri: string
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    });
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Google token exchange error:', error);
+      throw new Error(`Google token exchange failed: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -275,15 +378,38 @@ export class OfficeConnectionService {
     const response = await fetch(`${this.GRAPH_BASE_URL}/me/calendars`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
       },
     });
 
     if (!response.ok) {
+      const error = await response.text();
+      console.error('Microsoft calendars fetch error:', error);
       throw new Error(`Failed to fetch Microsoft calendars: ${response.statusText}`);
     }
 
     const data = await response.json();
     return data.value || [];
+  }
+
+  // Get Google user info
+  static async getGoogleUserInfo(accessToken: string): Promise<{ email: string; name: string }> {
+    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Google user info: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return {
+      email: data.email,
+      name: data.name,
+    };
   }
 
   // Create calendar event in Microsoft Graph
@@ -297,6 +423,7 @@ export class OfficeConnectionService {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
       body: JSON.stringify(event),
     });
@@ -304,6 +431,30 @@ export class OfficeConnectionService {
     if (!response.ok) {
       const error = await response.text();
       throw new Error(`Failed to create Microsoft event: ${error}`);
+    }
+
+    return await response.json();
+  }
+
+  // Create calendar event in Google Calendar
+  static async createGoogleEvent(
+    accessToken: string,
+    calendarId: string,
+    event: Partial<GoogleCalendarEvent>
+  ): Promise<GoogleCalendarEvent> {
+    const response = await fetch(`${this.GOOGLE_CALENDAR_BASE_URL}/calendars/${calendarId}/events`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(event),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create Google event: ${error}`);
     }
 
     return await response.json();
@@ -325,6 +476,7 @@ export class OfficeConnectionService {
     const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
       },
     });
 
@@ -334,6 +486,38 @@ export class OfficeConnectionService {
 
     const data = await response.json();
     return data.value || [];
+  }
+
+  // Get calendar events from Google Calendar
+  static async getGoogleEvents(
+    accessToken: string,
+    calendarId: string,
+    startTime?: string,
+    endTime?: string
+  ): Promise<GoogleCalendarEvent[]> {
+    let url = `${this.GOOGLE_CALENDAR_BASE_URL}/calendars/${calendarId}/events`;
+    
+    const params = new URLSearchParams();
+    if (startTime) params.append('timeMin', startTime);
+    if (endTime) params.append('timeMax', endTime);
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Google events: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.items || [];
   }
 
   // Refresh Microsoft access token with proper tenant - handles both public and confidential clients
@@ -352,7 +536,7 @@ export class OfficeConnectionService {
     });
 
     // Add client secret if provided
-    if (clientSecret) {
+    if (clientSecret && clientSecret.trim()) {
       body.append('client_secret', clientSecret);
     }
     
@@ -360,12 +544,13 @@ export class OfficeConnectionService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
       },
       body: body.toString(),
     });
 
     // If failed with client secret, try without (public client)
-    if (!response.ok && clientSecret) {
+    if (!response.ok && clientSecret && clientSecret.trim()) {
       console.log('Trying public client refresh (without client_secret)...');
       
       body = new URLSearchParams({
@@ -378,6 +563,7 @@ export class OfficeConnectionService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
         },
         body: body.toString(),
       });
@@ -386,6 +572,41 @@ export class OfficeConnectionService {
     if (!response.ok) {
       const error = await response.text();
       throw new Error(`Microsoft token refresh failed: ${error}`);
+    }
+
+    const data = await response.json();
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || refreshToken,
+      expiresIn: data.expires_in,
+    };
+  }
+
+  // Refresh Google access token
+  static async refreshGoogleToken(
+    refreshToken: string,
+    clientId: string,
+    clientSecret: string
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    });
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Google token refresh failed: ${error}`);
     }
 
     const data = await response.json();
@@ -452,6 +673,36 @@ export class OfficeConnectionService {
         eventId: result.id,
         eventUrl: result.onlineMeeting?.joinUrl,
       };
+    } else if (user.officeConnectionType === 'google') {
+      const event: Partial<GoogleCalendarEvent> = {
+        summary: booking.title,
+        description: booking.description || '',
+        start: {
+          dateTime: booking.startTime.toISOString(),
+          timeZone: 'UTC',
+        },
+        end: {
+          dateTime: booking.endTime.toISOString(),
+          timeZone: 'UTC',
+        },
+        location: booking.location,
+        attendees: booking.attendees?.map(email => ({
+          email,
+          displayName: email,
+        })) || [],
+        visibility: booking.isPrivate ? 'private' : 'public',
+      };
+
+      const result = await this.createGoogleEvent(
+        user.officeAccessToken!,
+        user.officeCalendarId!,
+        event
+      );
+
+      return {
+        eventId: result.id,
+        eventUrl: result.hangoutLink,
+      };
     }
 
     throw new Error(`Unsupported office connection type: ${user.officeConnectionType}`);
@@ -478,6 +729,20 @@ export class OfficeConnectionService {
       return events.map(event => ({
         id: event.id,
         title: event.subject,
+        start: new Date(event.start.dateTime),
+        end: new Date(event.end.dateTime),
+      }));
+    } else if (user.officeConnectionType === 'google') {
+      const events = await this.getGoogleEvents(
+        user.officeAccessToken!,
+        user.officeCalendarId!,
+        startTime.toISOString(),
+        endTime.toISOString()
+      );
+
+      return events.map(event => ({
+        id: event.id,
+        title: event.summary,
         start: new Date(event.start.dateTime),
         end: new Date(event.end.dateTime),
       }));
